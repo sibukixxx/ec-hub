@@ -16,3 +16,8 @@ output/
 *.csv
 *.json
 !config.example.json
+!frontend/package.json
+
+# Frontend
+frontend/node_modules/
+frontend/dist/

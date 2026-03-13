@@ -1,0 +1,95 @@
+import { useState, useEffect } from 'preact/hooks';
+import { api } from '../api';
+
+const STATUSES = [null, 'pending', 'approved', 'rejected', 'listed'];
+
+export function Candidates() {
+  const [candidates, setCandidates] = useState([]);
+  const [filter, setFilter] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = () => {
+    setLoading(true);
+    api.getCandidates(filter, 100).then(setCandidates).finally(() => setLoading(false));
+  };
+
+  useEffect(load, [filter]);
+
+  const updateStatus = async (id, status) => {
+    await api.updateCandidateStatus(id, status);
+    load();
+  };
+
+  return (
+    <div>
+      <h2 class="page-title">Candidates</h2>
+
+      <div class="tabs">
+        {STATUSES.map((s) => (
+          <button
+            key={s}
+            class={`tab ${filter === s ? 'active' : ''}`}
+            onClick={() => setFilter(s)}
+          >
+            {s || 'All'}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div class="loading">Loading...</div>
+      ) : (
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Title</th>
+                <th>Source</th>
+                <th>Cost</th>
+                <th>eBay Price</th>
+                <th>Profit</th>
+                <th>Margin</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {candidates.map((c) => (
+                <tr key={c.id}>
+                  <td>{c.id}</td>
+                  <td title={c.title_jp}>{(c.title_jp || '').slice(0, 35)}</td>
+                  <td>{c.source_site}</td>
+                  <td>{'\u00a5'}{(c.cost_jpy || 0).toLocaleString()}</td>
+                  <td>${(c.ebay_price_usd || 0).toFixed(2)}</td>
+                  <td class={c.net_profit_jpy > 0 ? '' : ''}>
+                    {c.net_profit_jpy != null ? `\u00a5${c.net_profit_jpy.toLocaleString()}` : '-'}
+                  </td>
+                  <td>
+                    {c.margin_rate != null ? `${(c.margin_rate * 100).toFixed(0)}%` : '-'}
+                  </td>
+                  <td><span class={`badge ${c.status}`}>{c.status}</span></td>
+                  <td>
+                    {c.status === 'pending' && (
+                      <>
+                        <button class="btn btn-success btn-sm" onClick={() => updateStatus(c.id, 'approved')}>
+                          Approve
+                        </button>{' '}
+                        <button class="btn btn-danger btn-sm" onClick={() => updateStatus(c.id, 'rejected')}>
+                          Reject
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {candidates.length === 0 && (
+                <tr><td colspan="9" style="text-align:center;color:var(--text-muted)">No candidates found</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
