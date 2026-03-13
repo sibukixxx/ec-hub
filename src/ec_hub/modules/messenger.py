@@ -1,13 +1,20 @@
 """バイヤー自動応答モジュール.
 
 仕様書 §4.4 に基づくメッセージ自動応答。
-定型質問はテンプレートで即時返信し、判定困難な場合はLINE通知して人手に回す。
+Claude Haiku でバイヤーメッセージを高精度に分類し、
+定型質問はテンプレートで即時返信、判定困難な場合はLINE通知して人手に回す。
+
+分類フロー:
+1. Claude Haiku API で分類を試行 (高精度)
+2. API未設定 or エラー時はキーワードマッチングにフォールバック
 """
 
 from __future__ import annotations
 
 import logging
 import re
+
+import anthropic
 
 from ec_hub.config import load_settings
 from ec_hub.db import Database
@@ -42,7 +49,7 @@ TEMPLATES: dict[MessageCategory, str] = {
     ),
 }
 
-# キーワードベースの分類パターン
+# キーワードベースの分類パターン (フォールバック用)
 CATEGORY_PATTERNS: dict[MessageCategory, list[str]] = {
     MessageCategory.SHIPPING_TRACKING: [
         r"when.*ship", r"tracking", r"shipped\?", r"delivery",
@@ -62,6 +69,53 @@ CATEGORY_PATTERNS: dict[MessageCategory, list[str]] = {
     ],
 }
 
+# Claude Haiku 分類プロンプト
+CLASSIFICATION_SYSTEM_PROMPT = """You are a message classifier for an eBay seller who ships items from Japan.
+Classify the buyer's message into exactly one of the following categories:
+
+- shipping_tracking: Questions about shipping status, tracking numbers, delivery time, when item will ship
+- condition: Questions about item condition, authenticity, quality, defects
+- return_cancel: Requests to return, cancel, or refund an order, complaints about wrong/damaged items
+- address_change: Requests to change or update shipping address
+- other: Messages that don't fit any of the above categories
+
+Respond with ONLY the category name, nothing else."""
+
+
+class _ClaudeClassifier:
+    """Claude Haiku を使ったメッセージ分類."""
+
+    # 有効なカテゴリ名のマッピング
+    CATEGORY_MAP: dict[str, MessageCategory] = {
+        "shipping_tracking": MessageCategory.SHIPPING_TRACKING,
+        "condition": MessageCategory.CONDITION,
+        "return_cancel": MessageCategory.RETURN_CANCEL,
+        "address_change": MessageCategory.ADDRESS_CHANGE,
+        "other": MessageCategory.OTHER,
+    }
+
+    def __init__(self, api_key: str, *, model: str = "claude-haiku-4-5-20251001") -> None:
+        self._client = anthropic.AsyncAnthropic(api_key=api_key)
+        self._model = model
+
+    async def classify(self, body: str) -> MessageCategory:
+        """Claude Haiku でメッセージを分類する."""
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=32,
+            system=CLASSIFICATION_SYSTEM_PROMPT,
+            messages=[
+                {"role": "user", "content": body},
+            ],
+        )
+        result_text = response.content[0].text.strip().lower()
+
+        category = self.CATEGORY_MAP.get(result_text)
+        if category is None:
+            logger.warning("Claude Haiku が未知のカテゴリを返しました: '%s'", result_text)
+            return MessageCategory.OTHER
+        return category
+
 
 class Messenger:
     """バイヤーメッセージの自動分類・応答."""
@@ -70,13 +124,41 @@ class Messenger:
         self._db = db
         self._settings = settings or load_settings()
         self._notifier = Notifier(self._settings)
+        self._claude_classifier: _ClaudeClassifier | None = None
+        self._init_claude_classifier()
 
-    def classify_message(self, body: str) -> MessageCategory:
+    def _init_claude_classifier(self) -> None:
+        """Claude Haiku 分類器を初期化する."""
+        claude_config = self._settings.get("claude", {})
+        api_key = claude_config.get("api_key", "")
+        if api_key:
+            model = claude_config.get("classifier_model", "claude-haiku-4-5-20251001")
+            self._claude_classifier = _ClaudeClassifier(api_key, model=model)
+            logger.info("Claude Haiku 分類器を有効化 (model=%s)", model)
+
+    @property
+    def has_claude_classifier(self) -> bool:
+        """Claude Haiku 分類器が利用可能か."""
+        return self._claude_classifier is not None
+
+    async def classify_message(self, body: str) -> MessageCategory:
         """メッセージをカテゴリに分類する.
 
-        キーワードマッチングによる分類。
-        TODO: Claude API (Haiku) による高精度分類に置き換え
+        1. Claude Haiku API が設定済みなら高精度分類を試行
+        2. 失敗時またはAPI未設定時はキーワードマッチングにフォールバック
         """
+        if self._claude_classifier:
+            try:
+                category = await self._claude_classifier.classify(body)
+                logger.debug("Claude分類: '%s' → %s", body[:40], category.value)
+                return category
+            except Exception as e:
+                logger.warning("Claude分類失敗、フォールバックに切替: %s", e)
+
+        return self.classify_by_keywords(body)
+
+    def classify_by_keywords(self, body: str) -> MessageCategory:
+        """キーワードマッチングによるフォールバック分類."""
         text = body.lower()
         for category, patterns in CATEGORY_PATTERNS.items():
             for pattern in patterns:
@@ -101,7 +183,7 @@ class Messenger:
         Returns:
             True: 自動応答した, False: エスカレーションした
         """
-        category = self.classify_message(body)
+        category = await self.classify_message(body)
 
         await self._db.add_message(
             buyer_username=buyer_username,
