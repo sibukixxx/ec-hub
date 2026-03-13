@@ -21,3 +21,4 @@ output/
 # Frontend
 frontend/node_modules/
 frontend/dist/
+package-lock.json
