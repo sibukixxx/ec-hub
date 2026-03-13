@@ -5,7 +5,7 @@ eBay商品データの収集・分析ツール。eBayの検索結果や商品詳
 ## セットアップ
 
 ```bash
-pip install -e ".[dev]"
+uv sync
 ```
 
 ## 使い方
@@ -76,7 +76,7 @@ src/ec_hub/
 ## テスト
 
 ```bash
-pytest
+uv run pytest
 ```
 
 ## ライセンス
