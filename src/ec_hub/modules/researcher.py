@@ -1,19 +1,29 @@
 """リサーチモジュール.
 
 仕様書 §4.1 に基づくリサーチ自動化。
-eBayの売れ筋を検索し、日本のECサイトとの価格差を分析して候補を抽出する。
+eBayの売れ筋を検索し、Amazon/楽天の仕入れ価格と比較して利益率30%以上の候補を抽出する。
+
+処理フロー:
+1. eBayで売れ筋商品を検索
+2. 各商品タイトルでAmazon PA-API / 楽天APIを横断検索
+3. 仕入れ価格が見つかった場合、calc_net_profit() で純利益を計算
+4. 利益率30%以上 → candidatesテーブルに登録
+5. LINE通知で候補件数を送信
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from ec_hub.config import load_fee_rules, load_settings
 from ec_hub.db import Database
-from ec_hub.models import CandidateStatus
 from ec_hub.modules.notifier import Notifier
 from ec_hub.modules.profit_tracker import ProfitTracker
+from ec_hub.scrapers.amazon import AmazonClient
+from ec_hub.scrapers.base import SourceProduct, SourceSearcher
 from ec_hub.scrapers.ebay import EbayScraper
+from ec_hub.scrapers.rakuten import RakutenClient
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +52,31 @@ class Researcher:
     def exclude_categories(self) -> list[str]:
         return self._research_config.get("exclude_categories", [])
 
+    @property
+    def max_candidates_per_run(self) -> int:
+        return self._research_config.get("max_candidates_per_run", 50)
+
+    def _create_source_searchers(self) -> list[SourceSearcher]:
+        """設定に基づいて仕入れ検索クライアントを生成する."""
+        searchers: list[SourceSearcher] = []
+
+        amazon_config = self._settings.get("amazon", {})
+        if amazon_config.get("access_key"):
+            searchers.append(AmazonClient(
+                access_key=amazon_config["access_key"],
+                secret_key=amazon_config.get("secret_key", ""),
+                partner_tag=amazon_config.get("partner_tag", ""),
+                country=amazon_config.get("country", "www.amazon.co.jp"),
+            ))
+
+        rakuten_config = self._settings.get("rakuten", {})
+        if rakuten_config.get("app_id"):
+            searchers.append(RakutenClient(
+                app_id=rakuten_config["app_id"],
+            ))
+
+        return searchers
+
     async def search_ebay_sold(self, query: str, pages: int = 1) -> list[dict]:
         """eBayで販売済みリストを検索し候補を収集する."""
         candidates = []
@@ -50,6 +85,8 @@ class Researcher:
                 result = await scraper.search(query, page=page, sort="date_desc")
                 for product in result.products:
                     if product.category and product.category in self.exclude_categories:
+                        continue
+                    if product.price is None or product.price <= 0:
                         continue
                     candidates.append({
                         "item_id": product.item_id,
@@ -61,6 +98,38 @@ class Researcher:
                     })
         logger.info("eBay検索 '%s': %d 件取得", query, len(candidates))
         return candidates
+
+    async def find_source_price(
+        self,
+        query: str,
+        searchers: list[SourceSearcher],
+        *,
+        max_results: int = 5,
+    ) -> SourceProduct | None:
+        """Amazon / 楽天を横断検索し、最安の仕入れ商品を見つける.
+
+        各仕入れサイトを並行検索し、在庫があり最も安い商品を返す。
+        """
+        if not searchers:
+            return None
+
+        tasks = [searcher.search(query, max_results=max_results) for searcher in searchers]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        all_products: list[SourceProduct] = []
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning("仕入れ検索エラー: %s", result)
+                continue
+            for product in result.products:
+                if product.availability and product.price_jpy > 0:
+                    all_products.append(product)
+
+        if not all_products:
+            return None
+
+        # 最安商品を返す
+        return min(all_products, key=lambda p: p.price_jpy)
 
     async def evaluate_candidate(
         self,
@@ -93,10 +162,13 @@ class Researcher:
         # 送料が売価の50%超は除外
         max_shipping_ratio = self._research_config.get("max_shipping_ratio", 0.50)
         if breakdown.jpy_revenue > 0 and breakdown.shipping_cost / breakdown.jpy_revenue > max_shipping_ratio:
-            logger.debug("送料比率超過で除外: %s (%.1f%%)", title_jp, breakdown.shipping_cost / breakdown.jpy_revenue * 100)
+            logger.debug(
+                "送料比率超過で除外: %s (%.1f%%)",
+                title_jp, breakdown.shipping_cost / breakdown.jpy_revenue * 100,
+            )
             return None
 
-        # 利益率30%未満は除外
+        # 利益率基準未達は除外
         if breakdown.margin_rate < self.min_margin_rate:
             logger.debug("利益率不足で除外: %s (%.1f%%)", title_jp, breakdown.margin_rate * 100)
             return None
@@ -116,16 +188,64 @@ class Researcher:
             source_url=source_url,
         )
         logger.info(
-            "候補登録: %s | 利益 ¥%d (%.0f%%)",
-            title_jp, breakdown.net_profit, breakdown.margin_rate * 100,
+            "候補登録: %s | 仕入¥%d → eBay$%.0f | 利益 ¥%d (%.0f%%) [%s]",
+            title_jp[:30], cost_jpy, ebay_price_usd,
+            breakdown.net_profit, breakdown.margin_rate * 100,
+            source_site,
         )
         return candidate_id
 
-    async def run(self, queries: list[str] | None = None) -> int:
+    async def research_single(
+        self,
+        ebay_product: dict,
+        searchers: list[SourceSearcher],
+    ) -> int | None:
+        """単一のeBay商品に対してリサーチを実行する.
+
+        1. eBay商品タイトルで仕入れサイトを横断検索
+        2. 最安の仕入れ価格を見つける
+        3. 利益計算して基準を満たせばDBに登録
+
+        Returns:
+            登録した candidate の ID、または None
+        """
+        title = ebay_product.get("title", "")
+        price_usd = ebay_product.get("price_usd")
+        if not title or not price_usd:
+            return None
+
+        # タイトルから検索クエリを生成
+        search_query = simplify_search_query(title)
+
+        source_product = await self.find_source_price(search_query, searchers)
+        if not source_product:
+            logger.debug("仕入れ先なし: %s", title[:40])
+            return None
+
+        return await self.evaluate_candidate(
+            item_code=source_product.item_code,
+            source_site=source_product.source_site,
+            title_jp=source_product.title,
+            cost_jpy=source_product.price_jpy,
+            ebay_price_usd=price_usd,
+            weight_g=source_product.weight_g or 500,
+            category=source_product.category or ebay_product.get("category"),
+            image_url=source_product.image_url,
+            source_url=source_product.url,
+        )
+
+    async def run(self, queries: list[str] | None = None, *, pages: int = 1) -> int:
         """リサーチ処理を実行する.
 
+        処理フロー:
+        1. eBayで各キーワードの売れ筋を検索
+        2. 各eBay商品に対してAmazon/楽天で仕入れ価格を検索
+        3. 利益率30%以上の商品を候補として登録
+        4. LINE通知で結果を報告
+
         Args:
-            queries: 検索キーワードリスト（Noneの場合はデフォルト）
+            queries: 検索キーワードリスト
+            pages: eBay検索のページ数
 
         Returns:
             登録した候補数
@@ -133,15 +253,59 @@ class Researcher:
         if not queries:
             queries = ["japanese vintage", "anime figure", "japan exclusive"]
 
+        searchers = self._create_source_searchers()
+        if not searchers:
+            logger.warning(
+                "仕入れ検索APIが未設定です。"
+                "config/settings.yaml の amazon / rakuten セクションにAPIキーを設定してください。"
+            )
+            for query in queries:
+                ebay_results = await self.search_ebay_sold(query, pages=pages)
+                logger.info("'%s': eBay %d 件取得（仕入れ検索はスキップ）", query, len(ebay_results))
+            return 0
+
         total_registered = 0
-        for query in queries:
-            ebay_results = await self.search_ebay_sold(query)
-            logger.info("'%s' で %d 件を評価中...", query, len(ebay_results))
-            # TODO: 各eBay商品に対してAmazon/楽天で仕入れ価格を検索し
-            # evaluate_candidate() で評価する
-            # 現在はeBay検索結果の収集のみ実装済み
+        try:
+            for query in queries:
+                if total_registered >= self.max_candidates_per_run:
+                    logger.info("最大候補数 (%d) に到達。リサーチ終了。", self.max_candidates_per_run)
+                    break
+
+                ebay_results = await self.search_ebay_sold(query, pages=pages)
+                logger.info("'%s': eBay %d 件を仕入れ検索中...", query, len(ebay_results))
+
+                for ebay_product in ebay_results:
+                    if total_registered >= self.max_candidates_per_run:
+                        break
+                    candidate_id = await self.research_single(ebay_product, searchers)
+                    if candidate_id is not None:
+                        total_registered += 1
+        finally:
+            for searcher in searchers:
+                await searcher.close()
+
+        logger.info("リサーチ完了: %d 件の候補を登録", total_registered)
 
         if total_registered > 0:
             await self._notifier.notify_candidates(total_registered)
 
         return total_registered
+
+
+def simplify_search_query(title: str) -> str:
+    """eBayの商品タイトルから検索クエリを生成する.
+
+    長いタイトルから不要な修飾語を除去し、
+    日本ECサイトでの検索精度を上げる。
+    """
+    noise_words = {
+        "new", "used", "rare", "vintage", "authentic", "genuine",
+        "brand", "sealed", "nib", "nip", "mint", "excellent",
+        "free", "shipping", "fast", "ship", "from", "japan",
+        "us", "seller", "lot", "set", "bundle",
+    }
+    words = title.split()
+    filtered = [w for w in words if w.lower().strip("!,.()-[]") not in noise_words]
+
+    # 最大6語に制限
+    return " ".join(filtered[:6])

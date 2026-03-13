@@ -210,6 +210,61 @@ async def _calc(cost: int, price: float, weight: int, dest: str) -> None:
         console.print("\n[green]利益率30%以上 - 出品候補として適格です。[/]")
 
 
+# === リサーチコマンド ===
+
+
+@main.command()
+@click.argument("queries", nargs=-1)
+@click.option("--pages", "-p", default=1, help="eBay検索のページ数")
+def research(queries: tuple[str, ...], pages: int) -> None:
+    """eBay売れ筋 ⇔ Amazon/楽天の価格差リサーチを実行する.
+
+    QUERIES: 検索キーワード（複数指定可）。省略時はデフォルトキーワードを使用。
+
+    例: ec-hub research "anime figure" "japanese pottery"
+    """
+    asyncio.run(_research(list(queries) if queries else None, pages))
+
+
+async def _research(queries: list[str] | None, pages: int) -> None:
+    from ec_hub.modules.researcher import Researcher
+
+    settings = load_settings()
+    fee_rules = load_fee_rules()
+    async with Database(settings.get("database", {}).get("path", "db/ebay.db")) as db:
+        researcher = Researcher(db, settings, fee_rules)
+        console.print("[bold blue]リサーチを開始...[/]")
+        count = await researcher.run(queries, pages=pages)
+        console.print(f"\n[green]リサーチ完了: {count} 件の候補を登録しました。[/]")
+
+        if count > 0:
+            rows = await db.get_candidates(status="pending", limit=count)
+            table = Table(title="新規候補", show_lines=True)
+            table.add_column("ID", style="dim", width=5)
+            table.add_column("商品名", max_width=35)
+            table.add_column("仕入元", width=8)
+            table.add_column("仕入", justify="right")
+            table.add_column("eBay", justify="right")
+            table.add_column("純利益", justify="right")
+            table.add_column("利益率", justify="right")
+
+            for r in rows:
+                margin = r.get("margin_rate")
+                margin_str = f"{margin:.0%}" if margin else "N/A"
+                profit = r.get("net_profit_jpy")
+                profit_str = f"¥{profit:,}" if profit else "N/A"
+                table.add_row(
+                    str(r["id"]),
+                    r.get("title_jp", "")[:35],
+                    r.get("source_site", ""),
+                    f"¥{r.get('cost_jpy', 0):,}",
+                    f"${r.get('ebay_price_usd', 0):.2f}",
+                    profit_str,
+                    margin_str,
+                )
+            console.print(table)
+
+
 # === 候補管理コマンド ===
 
 
