@@ -1,7 +1,7 @@
 [project]
 name = "ec-hub"
 version = "0.1.0"
-description = "eBay scraping hub - eBay商品データの収集・分析ツール"
+description = "eBay輸出転売 自動化システム"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
@@ -10,8 +10,12 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
     "pydantic>=2.0",
+    "pydantic-settings>=2.0",
     "click>=8.1",
     "rich>=13.0",
+    "pyyaml>=6.0",
+    "apscheduler>=3.10",
+    "aiosqlite>=0.20",
 ]
 
 [project.scripts]

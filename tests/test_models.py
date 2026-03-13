@@ -1,8 +1,15 @@
 """モデルのテスト."""
 
 from ec_hub.models import (
+    BuyerMessage,
+    Candidate,
+    CandidateStatus,
     ListingCondition,
+    MessageCategory,
+    Order,
+    OrderStatus,
     Product,
+    ProfitBreakdown,
     SearchResult,
     SellerInfo,
     ShippingInfo,
@@ -57,3 +64,62 @@ def test_listing_condition_enum():
     assert ListingCondition.NEW.value == "New"
     assert ListingCondition.USED.value == "Used"
     assert ListingCondition.REFURBISHED.value == "Certified Refurbished"
+
+
+def test_candidate():
+    c = Candidate(
+        item_code="B09XXXXXX",
+        title_jp="テスト商品",
+        cost_jpy=3000,
+        ebay_price_usd=80.0,
+        net_profit_jpy=3200,
+        margin_rate=1.07,
+    )
+    assert c.status == CandidateStatus.PENDING
+    assert c.source_site == "amazon"
+    assert c.cost_jpy == 3000
+
+
+def test_order():
+    o = Order(
+        ebay_order_id="12-34567-89012",
+        sale_price_usd=80.0,
+        destination_country="US",
+    )
+    assert o.status == OrderStatus.AWAITING_PURCHASE
+    assert o.packing_cost_jpy == 200
+
+
+def test_order_status_enum():
+    assert OrderStatus.AWAITING_PURCHASE.value == "awaiting_purchase"
+    assert OrderStatus.SHIPPED.value == "shipped"
+    assert OrderStatus.COMPLETED.value == "completed"
+
+
+def test_buyer_message():
+    msg = BuyerMessage(
+        buyer_username="test_buyer",
+        body="When will my item ship?",
+        category=MessageCategory.SHIPPING_TRACKING,
+    )
+    assert msg.direction == "inbound"
+    assert msg.auto_replied is False
+
+
+def test_profit_breakdown():
+    pb = ProfitBreakdown(
+        jpy_cost=3000,
+        ebay_price_usd=80.0,
+        fx_rate=150.0,
+        jpy_revenue=12000,
+        ebay_fee=1590,
+        payoneer_fee=240,
+        shipping_cost=2000,
+        packing_cost=200,
+        fx_buffer=360,
+        total_cost=7390,
+        net_profit=4610,
+        margin_rate=1.537,
+    )
+    assert pb.net_profit == 4610
+    assert pb.margin_rate > 1.0

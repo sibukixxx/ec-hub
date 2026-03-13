@@ -1,11 +1,12 @@
 # ec-hub
 
-eBay商品データの収集・分析ツール。eBayの検索結果や商品詳細ページをスクレイピングし、CSV/JSON形式でエクスポートできます。
+eBay輸出転売 自動化システム。リサーチ・出品・受注管理・バイヤー対応を自動化し、1人でスケーラブルな運用を可能にする。
 
 ## セットアップ
 
 ```bash
 uv sync
+cp config/settings.yaml config/settings.local.yaml  # API キーを設定
 ```
 
 ## 使い方
@@ -35,11 +36,25 @@ ec-hub search "フィギュア" --site co.jp
 ### 商品詳細取得
 
 ```bash
-# 商品IDから詳細を取得
 ec-hub item 123456789
-
-# JSON出力
 ec-hub item 123456789 --output item.json
+```
+
+### 利益シミュレーション
+
+```bash
+# 仕入れ¥3,000、eBay $80、重量500g、配送先USで利益計算
+ec-hub calc --cost 3000 --price 80 --weight 500 --dest US
+```
+
+### 候補・注文管理
+
+```bash
+# リサーチ候補一覧
+ec-hub candidates --status pending
+
+# 注文一覧
+ec-hub orders --status awaiting_purchase
 ```
 
 ### Pythonから使う
@@ -57,20 +72,41 @@ async def main():
 asyncio.run(main())
 ```
 
+## モジュール構成
+
+| モジュール | 役割 | 実装状況 |
+|-----------|------|---------|
+| **Researcher** | 価格差リサーチ・候補抽出 | Phase 2 |
+| **Lister** | eBayへの自動出品 | Phase 3 |
+| **Order Manager** | 受注検知・仕入れ指示 | Phase 4 |
+| **Messenger** | バイヤーメッセージ自動応答 | Phase 5 |
+| **Profit Tracker** | 利益計算・日次レポート | Phase 1 (実装済) |
+| **Notifier** | LINE通知ハブ | Phase 1 (実装済) |
+
 ## プロジェクト構成
 
 ```
 src/ec_hub/
-├── __init__.py          # パッケージ初期化
 ├── cli.py               # CLIインターフェース
-├── models.py            # データモデル (Product, SearchResult)
+├── config.py            # 設定ファイル管理
+├── models.py            # データモデル
 ├── scrapers/
-│   ├── __init__.py
 │   └── ebay.py          # eBayスクレイパー
-└── exporters/
-    ├── __init__.py
-    ├── csv_exporter.py   # CSV出力
-    └── json_exporter.py  # JSON出力
+├── exporters/
+│   ├── csv_exporter.py  # CSV出力
+│   └── json_exporter.py # JSON出力
+├── modules/
+│   ├── profit_tracker.py # 利益計算
+│   ├── notifier.py       # LINE通知
+│   ├── researcher.py     # リサーチ
+│   ├── lister.py         # 出品
+│   ├── order_manager.py  # 受注管理
+│   └── messenger.py      # バイヤー応答
+└── db/
+    └── database.py       # SQLiteデータベース
+config/
+├── settings.yaml        # システム設定
+└── fee_rules.yaml       # 手数料・送料ルール
 ```
 
 ## テスト

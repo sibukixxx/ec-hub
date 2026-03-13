@@ -1,0 +1,71 @@
+# eBay輸出転売 手数料・費用ルール
+
+# eBay販売手数料 (カテゴリ別)
+ebay_fees:
+  default_rate: 0.1325  # 13.25%
+  category_rates:
+    "Electronics": 0.1325
+    "Collectibles": 0.1325
+    "Clothing": 0.1325
+    "Toys & Hobbies": 0.1325
+    "Books": 0.1325
+
+# Payoneer 手数料
+payoneer:
+  rate: 0.02  # 2%
+
+# 為替バッファ
+fx_buffer:
+  rate: 0.03  # 3%
+
+# 梱包資材費 (円)
+packing:
+  default_cost: 200
+  small: 100       # 小型
+  medium: 200      # 中型
+  large: 300       # 大型
+
+# 国際送料テーブル (円)
+# weight_g: 重量グラム, cost: 送料（円）
+shipping:
+  zones:
+    US:
+      - { max_weight_g: 500, cost: 1500 }
+      - { max_weight_g: 1000, cost: 2000 }
+      - { max_weight_g: 2000, cost: 2800 }
+      - { max_weight_g: 5000, cost: 4000 }
+      - { max_weight_g: 10000, cost: 6500 }
+    EU:
+      - { max_weight_g: 500, cost: 1800 }
+      - { max_weight_g: 1000, cost: 2300 }
+      - { max_weight_g: 2000, cost: 3200 }
+      - { max_weight_g: 5000, cost: 4500 }
+      - { max_weight_g: 10000, cost: 7500 }
+    ASIA:
+      - { max_weight_g: 500, cost: 1200 }
+      - { max_weight_g: 1000, cost: 1600 }
+      - { max_weight_g: 2000, cost: 2200 }
+      - { max_weight_g: 5000, cost: 3500 }
+      - { max_weight_g: 10000, cost: 5500 }
+    OTHER:
+      - { max_weight_g: 500, cost: 2000 }
+      - { max_weight_g: 1000, cost: 2500 }
+      - { max_weight_g: 2000, cost: 3500 }
+      - { max_weight_g: 5000, cost: 5000 }
+      - { max_weight_g: 10000, cost: 8000 }
+
+  # 配送先 → ゾーンマッピング
+  destination_zones:
+    US: "US"
+    CA: "US"
+    GB: "EU"
+    DE: "EU"
+    FR: "EU"
+    IT: "EU"
+    ES: "EU"
+    AU: "ASIA"
+    CN: "ASIA"
+    KR: "ASIA"
+    TW: "ASIA"
+    HK: "ASIA"
+    SG: "ASIA"
