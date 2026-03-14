@@ -203,6 +203,10 @@ class Researcher:
         source_url: str | None = None,
         match_score: int | None = None,
         match_reason: str | None = None,
+        ebay_item_id: str | None = None,
+        ebay_title: str | None = None,
+        ebay_url: str | None = None,
+        research_run_id: int | None = None,
     ) -> int | None:
         """候補商品を評価し、基準を満たせばDBに登録する.
 
@@ -247,6 +251,10 @@ class Researcher:
             source_url=source_url,
             match_score=match_score,
             match_reason=match_reason,
+            ebay_item_id=ebay_item_id,
+            ebay_title=ebay_title,
+            ebay_url=ebay_url,
+            research_run_id=research_run_id,
         )
         # ML prediction for additional insight
         prediction_info = ""
@@ -269,6 +277,8 @@ class Researcher:
         self,
         ebay_product: dict,
         searchers: list[SourceSearcher],
+        *,
+        research_run_id: int | None = None,
     ) -> int | None:
         """単一のeBay商品に対してリサーチを実行する.
 
@@ -314,6 +324,10 @@ class Researcher:
             source_url=source_product.url,
             match_score=match_score_val,
             match_reason=match_reason,
+            ebay_item_id=ebay_product.get("item_id"),
+            ebay_title=title,
+            ebay_url=ebay_product.get("url"),
+            research_run_id=research_run_id,
         )
 
     async def run(self, queries: list[str] | None = None, *, pages: int = 1) -> int:
@@ -360,12 +374,22 @@ class Researcher:
                 ebay_results = await self.search_ebay_sold(query, pages=pages)
                 logger.info("'%s': eBay %d 件を仕入れ検索中...", query, len(ebay_results))
 
+                run_id = await self._db.create_research_run(
+                    query=query, ebay_hits=len(ebay_results),
+                )
+                query_registered = 0
+
                 for ebay_product in ebay_results:
                     if total_registered >= self.max_candidates_per_run:
                         break
-                    candidate_id = await self.research_single(ebay_product, searchers)
+                    candidate_id = await self.research_single(
+                        ebay_product, searchers, research_run_id=run_id,
+                    )
                     if candidate_id is not None:
                         total_registered += 1
+                        query_registered += 1
+
+                await self._db.update_research_run(run_id, candidates_found=query_registered)
         finally:
             for searcher in searchers:
                 await searcher.close()

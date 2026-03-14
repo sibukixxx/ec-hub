@@ -11,6 +11,14 @@ import aiosqlite
 logger = logging.getLogger(__name__)
 
 SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS research_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    query TEXT NOT NULL,
+    ebay_hits INTEGER NOT NULL DEFAULT 0,
+    candidates_found INTEGER NOT NULL DEFAULT 0,
+    started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS candidates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     item_code TEXT NOT NULL,
@@ -28,6 +36,10 @@ CREATE TABLE IF NOT EXISTS candidates (
     source_url TEXT,
     match_score INTEGER,
     match_reason TEXT,
+    ebay_item_id TEXT,
+    ebay_title TEXT,
+    ebay_url TEXT,
+    research_run_id INTEGER REFERENCES research_runs(id),
     status TEXT NOT NULL DEFAULT 'pending',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -80,7 +92,11 @@ CREATE TABLE IF NOT EXISTS daily_reports (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_dedup
+    ON candidates(source_site, item_code, ebay_item_id)
+    WHERE ebay_item_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_candidates_status ON candidates(status);
+CREATE INDEX IF NOT EXISTS idx_candidates_research_run ON candidates(research_run_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_ordered_at ON orders(ordered_at);
 CREATE INDEX IF NOT EXISTS idx_messages_buyer ON messages(buyer_username);
@@ -119,6 +135,39 @@ class Database:
             raise RuntimeError("Database not connected. Call connect() first.")
         return self._db
 
+    # --- Research Runs ---
+
+    async def create_research_run(
+        self,
+        *,
+        query: str,
+        ebay_hits: int = 0,
+        candidates_found: int = 0,
+    ) -> int:
+        cursor = await self.db.execute(
+            "INSERT INTO research_runs (query, ebay_hits, candidates_found) VALUES (?, ?, ?)",
+            (query, ebay_hits, candidates_found),
+        )
+        await self.db.commit()
+        return cursor.lastrowid  # type: ignore[return-value]
+
+    async def update_research_run(self, run_id: int, **fields: object) -> None:
+        if not fields:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [run_id]
+        await self.db.execute(
+            f"UPDATE research_runs SET {set_clause} WHERE id = ?", values  # noqa: S608
+        )
+        await self.db.commit()
+
+    async def get_research_runs(self, limit: int = 20) -> list[dict]:
+        cursor = await self.db.execute(
+            "SELECT * FROM research_runs ORDER BY id DESC LIMIT ?", (limit,)
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
     # --- Candidates ---
 
     async def add_candidate(
@@ -139,21 +188,63 @@ class Database:
         source_url: str | None = None,
         match_score: int | None = None,
         match_reason: str | None = None,
+        ebay_item_id: str | None = None,
+        ebay_title: str | None = None,
+        ebay_url: str | None = None,
+        research_run_id: int | None = None,
     ) -> int:
+        # Upsert when ebay_item_id is provided: update prices but preserve status
+        if ebay_item_id is not None:
+            cursor = await self.db.execute(
+                """SELECT id FROM candidates
+                WHERE source_site = ? AND item_code = ? AND ebay_item_id = ?""",
+                (source_site, item_code, ebay_item_id),
+            )
+            existing = await cursor.fetchone()
+            if existing:
+                await self.db.execute(
+                    """UPDATE candidates SET
+                        cost_jpy = ?, ebay_price_usd = ?, net_profit_jpy = ?,
+                        margin_rate = ?, weight_g = ?, category = ?,
+                        ebay_sold_count_30d = ?, image_url = ?, source_url = ?,
+                        ebay_title = ?, ebay_url = ?, research_run_id = ?,
+                        updated_at = ?
+                    WHERE id = ?""",
+                    (
+                        cost_jpy, ebay_price_usd, net_profit_jpy,
+                        margin_rate, weight_g, category,
+                        ebay_sold_count_30d, image_url, source_url,
+                        ebay_title, ebay_url, research_run_id,
+                        datetime.utcnow().isoformat(), existing["id"],
+                    ),
+                )
+                await self.db.commit()
+                return existing["id"]
+
         cursor = await self.db.execute(
             """INSERT INTO candidates
             (item_code, source_site, title_jp, title_en, cost_jpy, ebay_price_usd,
              net_profit_jpy, margin_rate, weight_g, category, ebay_sold_count_30d,
-             image_url, source_url, match_score, match_reason)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             image_url, source_url, match_score, match_reason,
+             ebay_item_id, ebay_title, ebay_url, research_run_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 item_code, source_site, title_jp, title_en, cost_jpy, ebay_price_usd,
                 net_profit_jpy, margin_rate, weight_g, category, ebay_sold_count_30d,
                 image_url, source_url, match_score, match_reason,
+                ebay_item_id, ebay_title, ebay_url, research_run_id,
             ),
         )
         await self.db.commit()
         return cursor.lastrowid  # type: ignore[return-value]
+
+    async def get_candidate_by_id(self, candidate_id: int) -> dict | None:
+        """IDで候補を1件取得する."""
+        cursor = await self.db.execute(
+            "SELECT * FROM candidates WHERE id = ?", (candidate_id,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
 
     async def get_candidates(self, status: str | None = None, limit: int = 50) -> list[dict]:
         if status:
@@ -167,6 +258,14 @@ class Database:
             )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+    async def count_candidates_by_status(self) -> dict[str, int]:
+        """ステータス別の候補件数を取得する."""
+        cursor = await self.db.execute(
+            "SELECT status, COUNT(*) as cnt FROM candidates GROUP BY status"
+        )
+        rows = await cursor.fetchall()
+        return {row["status"]: row["cnt"] for row in rows}
 
     async def update_candidate_status(self, candidate_id: int, status: str) -> None:
         await self.db.execute(
@@ -195,6 +294,14 @@ class Database:
         await self.db.commit()
         return cursor.lastrowid  # type: ignore[return-value]
 
+    async def get_order_by_id(self, order_id: int) -> dict | None:
+        """IDで注文を1件取得する."""
+        cursor = await self.db.execute(
+            "SELECT * FROM orders WHERE id = ?", (order_id,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
     async def get_orders(self, status: str | None = None, limit: int = 50) -> list[dict]:
         if status:
             cursor = await self.db.execute(
@@ -207,6 +314,22 @@ class Database:
             )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+    async def count_orders_by_status(self) -> dict[str, int]:
+        """ステータス別の注文件数を取得する."""
+        cursor = await self.db.execute(
+            "SELECT status, COUNT(*) as cnt FROM orders GROUP BY status"
+        )
+        rows = await cursor.fetchall()
+        return {row["status"]: row["cnt"] for row in rows}
+
+    async def get_total_completed_profit(self) -> int:
+        """完了済み注文の合計利益を取得する."""
+        cursor = await self.db.execute(
+            "SELECT COALESCE(SUM(net_profit_jpy), 0) as total FROM orders WHERE status = 'completed'"
+        )
+        row = await cursor.fetchone()
+        return int(row["total"])
 
     async def update_order(self, order_id: int, **fields: object) -> None:
         if not fields:

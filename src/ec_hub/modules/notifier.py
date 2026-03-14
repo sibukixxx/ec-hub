@@ -61,28 +61,24 @@ class Notifier:
     async def notify_order(self, ebay_order_id: str, price_usd: float) -> bool:
         """新規注文の通知."""
         return await self.send(
-            f"[ec-hub] 新規注文!\n"
-            f"注文ID: {ebay_order_id}\n"
-            f"売価: ${price_usd:.2f}\n"
-            f"仕入れ・発送をお願いします。"
+            f"[ec-hub] 新規注文!\n注文ID: {ebay_order_id}\n売価: ${price_usd:.2f}\n仕入れ・発送をお願いします。"
         )
 
     async def notify_selling_limit(self, remaining: int, max_count: int) -> bool:
         """セリングリミット警告通知."""
         return await self.send(
-            f"[ec-hub] セリングリミット警告\n"
-            f"残り {remaining}/{max_count} 品\n"
-            f"リミット引き上げ申請を検討してください。"
+            f"[ec-hub] セリングリミット警告\n残り {remaining}/{max_count} 品\nリミット引き上げ申請を検討してください。"
         )
 
     async def notify_message_escalation(self, buyer: str, body: str) -> bool:
         """バイヤーメッセージのエスカレーション通知."""
         truncated = body[:200] + "..." if len(body) > 200 else body
-        return await self.send(
-            f"[ec-hub] バイヤーメッセージ（対応必要）\n"
-            f"From: {buyer}\n"
-            f"{truncated}"
-        )
+        return await self.send(f"[ec-hub] バイヤーメッセージ（対応必要）\nFrom: {buyer}\n{truncated}")
+
+    async def notify_scraper_warning(self, warnings: list[str]) -> bool:
+        """スクレイパー警告通知."""
+        msg = "[ec-hub] スクレイパー警告\n" + "\n".join(f"- {w}" for w in warnings)
+        return await self.send(msg)
 
     async def notify_daily_report(self, report: dict) -> bool:
         """日次レポート通知."""

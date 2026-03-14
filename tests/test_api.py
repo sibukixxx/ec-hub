@@ -5,20 +5,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from ec_hub.api import app, get_db, get_fee_rules, get_settings
-from ec_hub.db import Database
+from ec_hub.api import app, get_ctx
+from ec_hub.context import AppContext
 
 
 @pytest.fixture
-async def db():
-    database = Database(":memory:")
-    await database.connect()
-    yield database
-    await database.close()
-
-
-@pytest.fixture
-def settings():
+def test_settings():
     return {
         "exchange_rate": {"fallback_rate": 150.0},
         "database": {"path": ":memory:"},
@@ -27,7 +19,7 @@ def settings():
 
 
 @pytest.fixture
-def fee_rules():
+def test_fee_rules():
     return {
         "ebay_fees": {"default_rate": 0.1325},
         "payoneer": {"rate": 0.02},
@@ -44,11 +36,20 @@ def fee_rules():
 
 
 @pytest.fixture
-async def client(db, settings, fee_rules):
+async def ctx(test_settings, test_fee_rules):
+    ctx = await AppContext.create(
+        settings=test_settings,
+        fee_rules=test_fee_rules,
+        db_path=":memory:",
+    )
+    yield ctx
+    await ctx.close()
+
+
+@pytest.fixture
+async def client(ctx):
     """FastAPI テストクライアント (dependency_overrides 方式)."""
-    app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[get_settings] = lambda: settings
-    app.dependency_overrides[get_fee_rules] = lambda: fee_rules
+    app.dependency_overrides[get_ctx] = lambda: ctx
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
@@ -71,8 +72,8 @@ async def test_candidates_empty(client):
     assert resp.json() == []
 
 
-async def test_candidates_crud(client, db):
-    cid = await db.add_candidate(
+async def test_candidates_crud(client, ctx):
+    cid = await ctx.db.add_candidate(
         item_code="B09TEST",
         source_site="amazon",
         title_jp="テスト商品",
@@ -114,8 +115,8 @@ async def test_candidates_crud(client, db):
     assert len(resp.json()) == 1
 
 
-async def test_candidates_invalid_status(client, db):
-    cid = await db.add_candidate(
+async def test_candidates_invalid_status(client, ctx):
+    cid = await ctx.db.add_candidate(
         item_code="B09X",
         source_site="amazon",
         title_jp="test",
@@ -143,8 +144,8 @@ async def test_orders_empty(client):
     assert resp.json() == []
 
 
-async def test_orders_list(client, db):
-    await db.add_order(
+async def test_orders_list(client, ctx):
+    await ctx.db.add_order(
         ebay_order_id="12-34567-89012",
         buyer_username="buyer1",
         sale_price_usd=80.0,
@@ -177,19 +178,19 @@ async def test_calc_profit(client):
     assert data["jpy_revenue"] > 0
 
 
-async def test_dashboard_with_data(client, db):
+async def test_dashboard_with_data(client, ctx):
     """データがある場合のダッシュボード."""
-    await db.add_candidate(
+    await ctx.db.add_candidate(
         item_code="C1", source_site="amazon", title_jp="a",
         title_en=None, cost_jpy=1000, ebay_price_usd=30.0,
         net_profit_jpy=1000, margin_rate=1.0,
     )
-    oid = await db.add_order(
+    oid = await ctx.db.add_order(
         ebay_order_id="DASH-001",
         buyer_username="b",
         sale_price_usd=50.0,
     )
-    await db.update_order(oid, status="completed", net_profit_jpy=3000)
+    await ctx.db.update_order(oid, status="completed", net_profit_jpy=3000)
 
     resp = await client.get("/api/dashboard")
     data = resp.json()
@@ -201,12 +202,10 @@ async def test_dashboard_with_data(client, db):
 # --- リサーチ API ---
 
 
-@patch("ec_hub.api.Researcher")
-async def test_research_run(mock_researcher_cls, client):
+@patch("ec_hub.services.research_service.ResearchService.run_research", new_callable=AsyncMock)
+async def test_research_run(mock_run_research, client):
     """POST /api/research/run returns registered count."""
-    mock_instance = AsyncMock()
-    mock_instance.run = AsyncMock(return_value=3)
-    mock_researcher_cls.return_value = mock_instance
+    mock_run_research.return_value = 3
 
     resp = await client.post("/api/research/run", json={
         "keywords": ["test keyword"],
@@ -218,12 +217,10 @@ async def test_research_run(mock_researcher_cls, client):
     assert data["status"] == "completed"
 
 
-@patch("ec_hub.api.Researcher")
-async def test_research_run_default_keywords(mock_researcher_cls, client):
+@patch("ec_hub.services.research_service.ResearchService.run_research", new_callable=AsyncMock)
+async def test_research_run_default_keywords(mock_run_research, client):
     """POST /api/research/run with no body uses defaults."""
-    mock_instance = AsyncMock()
-    mock_instance.run = AsyncMock(return_value=0)
-    mock_researcher_cls.return_value = mock_instance
+    mock_run_research.return_value = 0
 
     resp = await client.post("/api/research/run", json={})
     assert resp.status_code == 200
@@ -232,8 +229,9 @@ async def test_research_run_default_keywords(mock_researcher_cls, client):
 # --- 出品 API ---
 
 
-async def test_listing_run(client, db):
+async def test_listing_run(client, ctx):
     """POST /api/listing/run lists approved candidates."""
+    db = ctx.db
     cid = await db.add_candidate(
         item_code="LIST01", source_site="amazon", title_jp="出品テスト",
         title_en=None, cost_jpy=2000, ebay_price_usd=60.0,
@@ -268,9 +266,9 @@ async def test_orders_check(client):
     assert "new_orders" in data
 
 
-async def test_orders_status_update(client, db):
+async def test_orders_status_update(client, ctx):
     """PUT /api/orders/{id}/status updates order status."""
-    oid = await db.add_order(
+    oid = await ctx.db.add_order(
         ebay_order_id="ORD-STATUS-001",
         buyer_username="buyer1",
         sale_price_usd=50.0,
@@ -286,15 +284,15 @@ async def test_orders_status_update(client, db):
     assert data["status"] == "purchased"
 
 
-async def test_orders_status_update_shipped(client, db):
+async def test_orders_status_update_shipped(client, ctx):
     """PUT /api/orders/{id}/status with shipped status requires tracking."""
-    oid = await db.add_order(
+    oid = await ctx.db.add_order(
         ebay_order_id="ORD-SHIP-001",
         buyer_username="buyer2",
         sale_price_usd=60.0,
         destination_country="US",
     )
-    await db.update_order(oid, status="purchased", actual_cost_jpy=2000)
+    await ctx.db.update_order(oid, status="purchased", actual_cost_jpy=2000)
 
     resp = await client.put(f"/api/orders/{oid}/status", json={
         "status": "shipped",
@@ -305,9 +303,9 @@ async def test_orders_status_update_shipped(client, db):
     assert resp.json()["status"] == "shipped"
 
 
-async def test_orders_status_update_invalid(client, db):
+async def test_orders_status_update_invalid(client, ctx):
     """PUT /api/orders/{id}/status rejects invalid status."""
-    oid = await db.add_order(
+    oid = await ctx.db.add_order(
         ebay_order_id="ORD-INV-001",
         buyer_username="buyer3",
         sale_price_usd=40.0,
@@ -336,9 +334,9 @@ async def test_messages_empty(client):
     assert resp.json() == []
 
 
-async def test_messages_list(client, db):
+async def test_messages_list(client, ctx):
     """GET /api/messages returns stored messages."""
-    await db.add_message(
+    await ctx.db.add_message(
         buyer_username="testbuyer",
         body="When will my item ship?",
         category="shipping_tracking",
@@ -350,10 +348,10 @@ async def test_messages_list(client, db):
     assert messages[0]["buyer_username"] == "testbuyer"
 
 
-async def test_messages_filter_by_buyer(client, db):
+async def test_messages_filter_by_buyer(client, ctx):
     """GET /api/messages?buyer=xxx filters by buyer."""
-    await db.add_message(buyer_username="alice", body="Hello")
-    await db.add_message(buyer_username="bob", body="Hi")
+    await ctx.db.add_message(buyer_username="alice", body="Hello")
+    await ctx.db.add_message(buyer_username="bob", body="Hi")
 
     resp = await client.get("/api/messages?buyer=alice")
     messages = resp.json()
@@ -361,9 +359,9 @@ async def test_messages_filter_by_buyer(client, db):
     assert messages[0]["buyer_username"] == "alice"
 
 
-async def test_messages_reply(client, db):
+async def test_messages_reply(client, ctx):
     """POST /api/messages/{id}/reply sends a manual reply."""
-    msg_id = await db.add_message(
+    msg_id = await ctx.db.add_message(
         buyer_username="buyer_reply",
         body="Is this authentic?",
         category="condition",
@@ -388,9 +386,9 @@ async def test_messages_reply_not_found(client):
 # --- エクスポート API ---
 
 
-async def test_export_candidates_csv(client, db):
+async def test_export_candidates_csv(client, ctx):
     """GET /api/export/candidates?format=csv returns CSV."""
-    await db.add_candidate(
+    await ctx.db.add_candidate(
         item_code="EXP01", source_site="amazon", title_jp="エクスポートテスト",
         title_en="Export Test", cost_jpy=1000, ebay_price_usd=30.0,
         net_profit_jpy=1000, margin_rate=1.0,
@@ -401,9 +399,9 @@ async def test_export_candidates_csv(client, db):
     assert "EXP01" in resp.text
 
 
-async def test_export_candidates_json(client, db):
+async def test_export_candidates_json(client, ctx):
     """GET /api/export/candidates?format=json returns JSON."""
-    await db.add_candidate(
+    await ctx.db.add_candidate(
         item_code="EXP02", source_site="rakuten", title_jp="JSON出力テスト",
         title_en=None, cost_jpy=2000, ebay_price_usd=50.0,
         net_profit_jpy=2000, margin_rate=1.0,
@@ -415,9 +413,9 @@ async def test_export_candidates_json(client, db):
     assert len(data) >= 1
 
 
-async def test_export_orders_csv(client, db):
+async def test_export_orders_csv(client, ctx):
     """GET /api/export/orders?format=csv returns CSV."""
-    await db.add_order(
+    await ctx.db.add_order(
         ebay_order_id="EXP-ORD-001",
         buyer_username="exporter",
         sale_price_usd=80.0,

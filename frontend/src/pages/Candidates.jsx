@@ -46,6 +46,7 @@ export function Candidates() {
                 <th>ID</th>
                 <th>Title</th>
                 <th>Source</th>
+                <th>eBay Origin</th>
                 <th>Cost</th>
                 <th>eBay Price</th>
                 <th>Profit</th>
@@ -60,6 +61,17 @@ export function Candidates() {
                   <td>{c.id}</td>
                   <td title={c.title_jp}>{(c.title_jp || '').slice(0, 35)}</td>
                   <td>{c.source_site}</td>
+                  <td>
+                    {c.ebay_title ? (
+                      c.ebay_url ? (
+                        <a href={c.ebay_url} target="_blank" rel="noopener noreferrer" title={c.ebay_title}>
+                          {c.ebay_title.slice(0, 30)}
+                        </a>
+                      ) : (
+                        <span title={c.ebay_title}>{c.ebay_title.slice(0, 30)}</span>
+                      )
+                    ) : '-'}
+                  </td>
                   <td>{'\u00a5'}{(c.cost_jpy || 0).toLocaleString()}</td>
                   <td>${(c.ebay_price_usd || 0).toFixed(2)}</td>
                   <td class={c.net_profit_jpy > 0 ? '' : ''}>
@@ -84,7 +96,7 @@ export function Candidates() {
                 </tr>
               ))}
               {candidates.length === 0 && (
-                <tr><td colspan="9" style="text-align:center;color:var(--text-muted)">No candidates found</td></tr>
+                <tr><td colspan="10" style="text-align:center;color:var(--text-muted)">No candidates found</td></tr>
               )}
             </tbody>
           </table>
