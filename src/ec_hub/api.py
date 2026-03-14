@@ -6,9 +6,6 @@
 
 from __future__ import annotations
 
-import csv
-import io
-import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -21,12 +18,17 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ec_hub.context import AppContext
+from ec_hub.exceptions import InvalidStatusError, NotFoundError
 from ec_hub.modules.price_predictor import PricePredictor
+from ec_hub.modules.profit_tracker import ProfitTracker
 from ec_hub.scrapers.ebay import EbayScraper
-from ec_hub.services.dashboard_service import DashboardService
-from ec_hub.services.listing_service import ListingService
-from ec_hub.services.order_service import OrderService
-from ec_hub.services.research_service import ResearchService
+from ec_hub.usecases.dashboard import DashboardUseCase
+from ec_hub.usecases.export import ExportUseCase
+from ec_hub.usecases.listing import ListingUseCase
+from ec_hub.usecases.message import MessageUseCase
+from ec_hub.usecases.order import OrderUseCase
+from ec_hub.usecases.profit_calc import ProfitCalcUseCase
+from ec_hub.usecases.research import ResearchUseCase
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +37,10 @@ STATIC_DIR = Path(__file__).parent.parent.parent / "frontend" / "dist"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    ctx = await AppContext.create()
+    ctx = AppContext.create()
+    await ctx.connect()
     app.state.ctx = ctx
-    logger.info("API server started, DB connected")
+    logger.info("API server started, AppContext connected")
     yield
     await ctx.close()
 
@@ -58,7 +61,7 @@ app.add_middleware(
 async def get_ctx() -> AppContext:
     ctx = app.state.ctx
     if ctx is None:
-        raise HTTPException(status_code=503, detail="Application not ready")
+        raise HTTPException(status_code=503, detail="AppContext not ready")
     return ctx
 
 
@@ -117,8 +120,8 @@ class DashboardResponse(BaseModel):
 async def get_dashboard(
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict:
-    svc = DashboardService(ctx)
-    return await svc.get_dashboard_summary()
+    uc = DashboardUseCase(ctx)
+    return await uc.get_summary()
 
 
 # --- 候補管理 ---
@@ -129,8 +132,7 @@ async def list_candidates(
     status: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
 ) -> list[dict]:
-    svc = ResearchService(ctx)
-    return await svc.get_candidates(status=status, limit=limit)
+    return await ctx.candidates.list(status=status, limit=limit)
 
 
 @app.get("/api/candidates/{candidate_id}")
@@ -138,8 +140,7 @@ async def get_candidate(
     candidate_id: int,
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict:
-    svc = ResearchService(ctx)
-    result = await svc.get_candidate(candidate_id)
+    result = await ctx.candidates.get_by_id(candidate_id)
     if not result:
         raise HTTPException(status_code=404, detail="Candidate not found")
     return result
@@ -154,8 +155,7 @@ async def update_candidate_status(
     valid = {"pending", "approved", "rejected", "listed"}
     if body.status not in valid:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid}")
-    svc = ResearchService(ctx)
-    await svc.update_candidate_status(candidate_id, body.status)
+    await ctx.candidates.update_status(candidate_id, body.status)
     return {"id": candidate_id, "status": body.status}
 
 
@@ -167,8 +167,7 @@ async def list_orders(
     status: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
 ) -> list[dict]:
-    svc = OrderService(ctx)
-    return await svc.get_orders(status=status, limit=limit)
+    return await ctx.orders.list(status=status, limit=limit)
 
 
 @app.get("/api/orders/{order_id}")
@@ -176,8 +175,7 @@ async def get_order(
     order_id: int,
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict:
-    svc = OrderService(ctx)
-    result = await svc.get_order(order_id)
+    result = await ctx.orders.get_by_id(order_id)
     if not result:
         raise HTTPException(status_code=404, detail="Order not found")
     return result
@@ -190,27 +188,13 @@ async def calc_profit(
     req: ProfitCalcRequest,
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict:
-    svc = DashboardService(ctx)
-    breakdown = await svc.calc_profit(
+    uc = ProfitCalcUseCase(ctx)
+    return await uc.calculate(
         cost_jpy=req.cost_jpy,
         ebay_price_usd=req.ebay_price_usd,
         weight_g=req.weight_g,
         destination=req.destination,
     )
-    return {
-        "jpy_cost": breakdown.jpy_cost,
-        "ebay_price_usd": breakdown.ebay_price_usd,
-        "fx_rate": breakdown.fx_rate,
-        "jpy_revenue": breakdown.jpy_revenue,
-        "ebay_fee": breakdown.ebay_fee,
-        "payoneer_fee": breakdown.payoneer_fee,
-        "shipping_cost": breakdown.shipping_cost,
-        "packing_cost": breakdown.packing_cost,
-        "fx_buffer": breakdown.fx_buffer,
-        "total_cost": breakdown.total_cost,
-        "net_profit": breakdown.net_profit,
-        "margin_rate": breakdown.margin_rate,
-    }
 
 
 # --- 価格比較 ---
@@ -221,11 +205,8 @@ async def compare_prices(
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict:
     """eBay販売価格と仕入れ候補を比較する."""
-    svc = DashboardService(ctx)
-    breakdown = await svc.calc_profit(
-        cost_jpy=0, ebay_price_usd=0, weight_g=500, destination="US",
-    )
-    fx_rate = breakdown.fx_rate
+    tracker = ProfitTracker(ctx.db, ctx.settings, ctx.fee_rules)
+    fx_rate = await tracker.get_fx_rate()
 
     # Search eBay
     ebay_items = []
@@ -247,8 +228,7 @@ async def compare_prices(
             })
 
     # Search candidates DB for matching items
-    research_svc = ResearchService(ctx)
-    candidates = await research_svc.get_candidates(limit=200)
+    candidates = await ctx.candidates.list(limit=200)
     keyword_lower = req.keyword.lower()
     matched = []
     for c in candidates:
@@ -256,9 +236,11 @@ async def compare_prices(
         if keyword_lower in title.lower():
             matched.append(c)
 
-    # ML prediction (load only, no training in request path)
+    # ML prediction
     predictor = PricePredictor(ctx.db)
     predictor.load()
+    if not predictor.is_trained:
+        await predictor.train(min_samples=5)
 
     return {
         "keyword": req.keyword,
@@ -266,7 +248,6 @@ async def compare_prices(
         "ebay_items": ebay_items,
         "source_candidates": matched[:10],
         "predictor_trained": predictor.is_trained,
-        "prediction_source": "ml" if predictor.is_trained else "rule_based",
     }
 
 
@@ -277,15 +258,13 @@ async def predict_price(
     req: PricePredictRequest,
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict:
-    # Load model only, no training in request path
     predictor = PricePredictor(ctx.db)
     predictor.load()
+    if not predictor.is_trained:
+        await predictor.train(min_samples=5)
 
-    svc = DashboardService(ctx)
-    breakdown = await svc.calc_profit(
-        cost_jpy=0, ebay_price_usd=0, weight_g=500, destination="US",
-    )
-    fx_rate = breakdown.fx_rate
+    tracker = ProfitTracker(ctx.db, ctx.settings, ctx.fee_rules)
+    fx_rate = await tracker.get_fx_rate()
 
     prediction = predictor.predict(
         cost_jpy=req.cost_jpy,
@@ -312,37 +291,14 @@ async def train_model(
 # --- リサーチ ---
 
 
-@app.get("/api/research/runs")
-async def list_research_runs(
-    ctx: Annotated[AppContext, Depends(get_ctx)],
-    limit: int = Query(20, ge=1, le=100),
-) -> list[dict]:
-    """リサーチ実行履歴を取得する."""
-    svc = ResearchService(ctx)
-    return await svc.get_research_runs(limit=limit)
-
-
-@app.get("/api/research/runs/{run_id}")
-async def get_research_run(
-    run_id: int,
-    ctx: Annotated[AppContext, Depends(get_ctx)],
-) -> dict:
-    """リサーチ実行の詳細を取得する."""
-    svc = ResearchService(ctx)
-    result = await svc.get_research_run(run_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="Research run not found")
-    return result
-
-
 @app.post("/api/research/run")
 async def research_run(
     req: ResearchRunRequest,
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict:
     """リサーチを手動実行する."""
-    svc = ResearchService(ctx)
-    registered = await svc.run_research(req.keywords, pages=req.pages)
+    uc = ResearchUseCase(ctx)
+    registered = await uc.run(keywords=req.keywords, pages=req.pages)
     return {"registered": registered, "status": "completed"}
 
 
@@ -354,12 +310,9 @@ async def listing_run(
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict:
     """承認済み候補をeBayに出品する."""
-    svc = ListingService(ctx)
-    try:
-        listed_count = await svc.run_auto_listing()
-        return {"listed_count": listed_count, "status": "completed"}
-    finally:
-        await svc.close()
+    uc = ListingUseCase(ctx)
+    listed_count = await uc.run()
+    return {"listed_count": listed_count, "status": "completed"}
 
 
 @app.get("/api/listing/limits")
@@ -367,11 +320,8 @@ async def listing_limits(
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict:
     """eBayセリングリミットの残りを確認する."""
-    svc = ListingService(ctx)
-    try:
-        return await svc.check_selling_limit()
-    finally:
-        await svc.close()
+    uc = ListingUseCase(ctx)
+    return await uc.check_selling_limit()
 
 
 # --- 注文管理 (拡充) ---
@@ -382,14 +332,9 @@ async def orders_check(
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict:
     """eBay APIで新規注文を確認する."""
-    svc = OrderService(ctx)
-    try:
-        new_orders = await svc.check_new_orders()
-        for order_data in new_orders:
-            await svc.register_order(**order_data)
-        return {"new_orders": len(new_orders)}
-    finally:
-        await svc.close()
+    uc = OrderUseCase(ctx)
+    count = await uc.check_new_orders()
+    return {"new_orders": count}
 
 
 @app.put("/api/orders/{order_id}/status")
@@ -399,39 +344,18 @@ async def update_order_status(
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict:
     """注文ステータスを更新する."""
-    valid_statuses = {"awaiting_purchase", "purchased", "shipped", "delivered", "completed"}
-    if body.status not in valid_statuses:
-        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
-
-    order = await ctx.db.get_order_by_id(order_id)
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-
-    svc = OrderService(ctx)
     try:
-        if body.status == "purchased":
-            await svc.mark_purchased(order_id, body.actual_cost_jpy or 0)
-        elif body.status == "shipped":
-            await svc.mark_shipped(
-                order_id,
-                tracking_number=body.tracking_number or "",
-                shipping_cost_jpy=body.shipping_cost_jpy or 0,
-            )
-        elif body.status == "delivered":
-            from ec_hub.modules.order_manager import OrderManager
-            manager = OrderManager(ctx.db, ctx.settings, ctx.fee_rules)
-            try:
-                await manager.mark_delivered(order_id)
-            finally:
-                await manager.close()
-        elif body.status == "completed":
-            await svc.complete_order(order_id)
-        else:
-            await ctx.db.update_order(order_id, status=body.status)
-    finally:
-        await svc.close()
-
-    return {"id": order_id, "status": body.status}
+        return await OrderUseCase(ctx).update_status(
+            order_id,
+            body.status,
+            actual_cost_jpy=body.actual_cost_jpy,
+            tracking_number=body.tracking_number,
+            shipping_cost_jpy=body.shipping_cost_jpy,
+        )
+    except InvalidStatusError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 # --- メッセージ ---
@@ -444,7 +368,8 @@ async def list_messages(
     limit: int = Query(50, ge=1, le=200),
 ) -> list[dict]:
     """メッセージ一覧を取得する."""
-    return await ctx.db.get_messages(buyer_username=buyer, limit=limit)
+    uc = MessageUseCase(ctx)
+    return await uc.list_messages(buyer_username=buyer, limit=limit)
 
 
 @app.post("/api/messages/{message_id}/reply")
@@ -454,23 +379,10 @@ async def reply_message(
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict:
     """メッセージに手動返信する."""
-    original = await ctx.db.get_message_by_id(message_id)
-    if not original:
-        raise HTTPException(status_code=404, detail="Message not found")
-
-    reply_id = await ctx.db.add_message(
-        buyer_username=original["buyer_username"],
-        body=body.body,
-        direction="outbound",
-        order_id=original.get("order_id"),
-        category=original.get("category"),
-    )
-    return {
-        "id": reply_id,
-        "buyer_username": original["buyer_username"],
-        "direction": "outbound",
-        "body": body.body,
-    }
+    try:
+        return await MessageUseCase(ctx).reply(message_id, body.body)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 # --- エクスポート ---
@@ -483,39 +395,19 @@ async def export_data(
     format: str = Query("csv"),
 ) -> Response:
     """候補・注文データをCSV/JSONでエクスポートする."""
-    valid_types = {"candidates", "orders"}
-    if data_type not in valid_types:
-        raise HTTPException(status_code=400, detail=f"Invalid type. Must be one of: {valid_types}")
+    try:
+        uc = ExportUseCase(ctx)
+        content, media_type = await uc.export_data(data_type, format)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
-    valid_formats = {"csv", "json"}
-    if format not in valid_formats:
-        raise HTTPException(status_code=400, detail=f"Invalid format. Must be one of: {valid_formats}")
+    headers = {}
+    if media_type == "application/json":
+        headers["Content-Disposition"] = f'attachment; filename="{data_type}.json"'
+    elif media_type == "text/csv" and content:
+        headers["Content-Disposition"] = f'attachment; filename="{data_type}.csv"'
 
-    if data_type == "candidates":
-        rows = await ctx.db.get_candidates(limit=10000)
-    else:
-        rows = await ctx.db.get_orders(limit=10000)
-
-    if format == "json":
-        return Response(
-            content=json.dumps(rows, ensure_ascii=False, indent=2, default=str),
-            media_type="application/json",
-            headers={"Content-Disposition": f'attachment; filename="{data_type}.json"'},
-        )
-
-    # CSV
-    if not rows:
-        return Response(content="", media_type="text/csv")
-
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=rows[0].keys())
-    writer.writeheader()
-    writer.writerows(rows)
-    return Response(
-        content=output.getvalue(),
-        media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{data_type}.csv"'},
-    )
+    return Response(content=content, media_type=media_type, headers=headers)
 
 
 # --- 静的ファイル配信 (ビルド済みフロントエンド) ---

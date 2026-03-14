@@ -1,53 +1,66 @@
-"""アプリケーション依存性コンテナ."""
+"""Application context — dependency container."""
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 from pathlib import Path
 
 from ec_hub.config import load_fee_rules, load_settings
 from ec_hub.db import Database
+from ec_hub.repositories import CandidateRepository, MessageRepository, OrderRepository
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
 class AppContext:
-    """Application dependency container.
+    """Aggregates settings, database, and repositories."""
 
-    設定・DB・外部クライアントの生成を集約し、
-    API / CLI / Scheduler から共通利用する。
-    """
-
-    settings: dict = field(default_factory=dict)
-    fee_rules: dict = field(default_factory=dict)
-    db: Database = field(default=None)  # type: ignore[assignment]
+    def __init__(
+        self,
+        *,
+        settings: dict,
+        fee_rules: dict,
+        db: Database,
+    ) -> None:
+        self.settings = settings
+        self.fee_rules = fee_rules
+        self.db = db
+        self.candidates = CandidateRepository(db)
+        self.orders = OrderRepository(db)
+        self.messages = MessageRepository(db)
 
     @classmethod
-    async def create(
+    def create(
         cls,
         *,
-        settings: dict | None = None,
-        fee_rules: dict | None = None,
-        db_path: str | Path | None = None,
+        settings_path: Path | None = None,
+        fee_rules_path: Path | None = None,
+        db_path: str | Path = "db/ebay.db",
     ) -> AppContext:
-        """AppContext を生成し、DBに接続する."""
-        s = settings or load_settings()
-        f = fee_rules or load_fee_rules()
-        path = db_path or s.get("database", {}).get("path", "db/ebay.db")
-        db = Database(path)
-        await db.connect()
-        ctx = cls(settings=s, fee_rules=f, db=db)
-        logger.info("AppContext created, DB connected")
-        return ctx
+        try:
+            settings = load_settings(settings_path)
+        except FileNotFoundError:
+            logger.warning("settings.yaml not found, using empty settings")
+            settings = {}
+        try:
+            fee_rules = load_fee_rules(fee_rules_path)
+        except FileNotFoundError:
+            logger.warning("fee_rules.yaml not found, using empty fee_rules")
+            fee_rules = {}
+
+        db = Database(db_path)
+        return cls(settings=settings, fee_rules=fee_rules, db=db)
+
+    async def connect(self) -> None:
+        await self.db.connect()
+        logger.info("AppContext connected")
 
     async def close(self) -> None:
-        """リソースを解放する."""
-        if self.db:
-            await self.db.close()
+        await self.db.close()
+        logger.info("AppContext closed")
 
     async def __aenter__(self) -> AppContext:
+        await self.connect()
         return self
 
     async def __aexit__(self, *args: object) -> None:

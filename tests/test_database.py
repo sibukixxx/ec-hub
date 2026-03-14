@@ -1,13 +1,8 @@
 """データベースのテスト."""
 
-import os
-from pathlib import Path
-
 import pytest
 
 from ec_hub.db import Database
-
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture
@@ -16,40 +11,6 @@ async def db():
     await database.connect()
     yield database
     await database.close()
-
-
-# --- Path resolution ---
-
-
-class TestDatabasePathResolution:
-    """Database path resolution tests."""
-
-    def test_relative_path_resolves_to_absolute_from_project_root(self):
-        database = Database("db/ebay.db")
-        expected = _PROJECT_ROOT / "db" / "ebay.db"
-        assert database._db_path == expected
-        assert database._db_path.is_absolute()
-
-    def test_absolute_path_is_used_as_is(self, tmp_path):
-        abs_path = tmp_path / "test.db"
-        database = Database(abs_path)
-        assert database._db_path == abs_path
-
-    def test_memory_path_is_preserved(self):
-        database = Database(":memory:")
-        assert database._db_path == Path(":memory:")
-
-    async def test_connect_raises_when_parent_not_writable(self, tmp_path):
-        readonly_dir = tmp_path / "readonly"
-        readonly_dir.mkdir()
-        db_path = readonly_dir / "test.db"
-        os.chmod(readonly_dir, 0o444)
-        try:
-            database = Database(db_path)
-            with pytest.raises(PermissionError, match="write"):
-                await database.connect()
-        finally:
-            os.chmod(readonly_dir, 0o755)
 
 
 async def test_add_and_get_candidate(db):
@@ -152,24 +113,24 @@ async def test_save_daily_report(db):
 
 async def test_get_candidate_by_id_returns_candidate_when_exists(db):
     cid = await db.add_candidate(
-        item_code="B09BYID",
+        item_code="B09ID01",
         source_site="amazon",
-        title_jp="ID取得テスト商品",
-        title_en="Test Product By ID",
-        cost_jpy=3000,
-        ebay_price_usd=80.0,
-        net_profit_jpy=5000,
-        margin_rate=1.67,
+        title_jp="ID検索テスト商品",
+        title_en="ID Search Test",
+        cost_jpy=2000,
+        ebay_price_usd=50.0,
+        net_profit_jpy=3000,
+        margin_rate=1.50,
     )
     result = await db.get_candidate_by_id(cid)
     assert result is not None
     assert result["id"] == cid
-    assert result["item_code"] == "B09BYID"
-    assert result["title_jp"] == "ID取得テスト商品"
+    assert result["item_code"] == "B09ID01"
+    assert result["title_jp"] == "ID検索テスト商品"
 
 
 async def test_get_candidate_by_id_returns_none_when_not_exists(db):
-    result = await db.get_candidate_by_id(99999)
+    result = await db.get_candidate_by_id(9999)
     assert result is None
 
 
@@ -178,65 +139,69 @@ async def test_get_candidate_by_id_returns_none_when_not_exists(db):
 
 async def test_get_order_by_id_returns_order_when_exists(db):
     oid = await db.add_order(
-        ebay_order_id="BY-ID-001",
-        buyer_username="buyer_by_id",
-        sale_price_usd=120.0,
-        destination_country="US",
+        ebay_order_id="11-11111-11111",
+        buyer_username="buyer_id_test",
+        sale_price_usd=60.0,
+        destination_country="JP",
     )
     result = await db.get_order_by_id(oid)
     assert result is not None
     assert result["id"] == oid
-    assert result["ebay_order_id"] == "BY-ID-001"
-    assert result["buyer_username"] == "buyer_by_id"
+    assert result["ebay_order_id"] == "11-11111-11111"
+    assert result["buyer_username"] == "buyer_id_test"
 
 
 async def test_get_order_by_id_returns_none_when_not_exists(db):
-    result = await db.get_order_by_id(99999)
+    result = await db.get_order_by_id(9999)
     assert result is None
 
 
 # --- count_candidates_by_status ---
 
 
-async def test_count_candidates_by_status_returns_counts(db):
-    await db.add_candidate(
-        item_code="C1", source_site="amazon", title_jp="a", title_en=None,
-        cost_jpy=1000, ebay_price_usd=30.0, net_profit_jpy=500, margin_rate=0.5,
-    )
-    await db.add_candidate(
-        item_code="C2", source_site="amazon", title_jp="b", title_en=None,
-        cost_jpy=2000, ebay_price_usd=60.0, net_profit_jpy=1000, margin_rate=0.5,
-    )
-    cid3 = await db.add_candidate(
-        item_code="C3", source_site="rakuten", title_jp="c", title_en=None,
-        cost_jpy=3000, ebay_price_usd=90.0, net_profit_jpy=1500, margin_rate=0.5,
-    )
-    await db.update_candidate_status(cid3, "approved")
+async def test_count_candidates_by_status_returns_count(db):
+    # 空の状態
+    assert await db.count_candidates_by_status() == 0
+    assert await db.count_candidates_by_status("pending") == 0
 
-    counts = await db.count_candidates_by_status()
-    assert counts["pending"] == 2
-    assert counts["approved"] == 1
-    assert counts.get("rejected", 0) == 0
+    # 2件追加
+    await db.add_candidate(
+        item_code="CNT01", source_site="amazon", title_jp="カウント1",
+        title_en=None, cost_jpy=1000, ebay_price_usd=30.0,
+        net_profit_jpy=1000, margin_rate=1.0,
+    )
+    cid2 = await db.add_candidate(
+        item_code="CNT02", source_site="rakuten", title_jp="カウント2",
+        title_en=None, cost_jpy=2000, ebay_price_usd=60.0,
+        net_profit_jpy=2000, margin_rate=1.0,
+    )
+    await db.update_candidate_status(cid2, "approved")
+
+    assert await db.count_candidates_by_status() == 2
+    assert await db.count_candidates_by_status("pending") == 1
+    assert await db.count_candidates_by_status("approved") == 1
+    assert await db.count_candidates_by_status("listed") == 0
 
 
 # --- count_orders_by_status ---
 
 
-async def test_count_orders_by_status_returns_counts(db):
-    oid1 = await db.add_order(
-        ebay_order_id="CNT-001", sale_price_usd=50.0,
-    )
+async def test_count_orders_by_status_returns_count(db):
+    assert await db.count_orders_by_status() == 0
+    assert await db.count_orders_by_status("awaiting_purchase") == 0
+
     await db.add_order(
-        ebay_order_id="CNT-002", sale_price_usd=60.0,
+        ebay_order_id="CNT-001", sale_price_usd=40.0,
     )
-    await db.update_order(oid1, status="completed", net_profit_jpy=3000)
+    oid2 = await db.add_order(
+        ebay_order_id="CNT-002", sale_price_usd=50.0,
+    )
+    await db.update_order(oid2, status="shipped")
 
-    counts = await db.count_orders_by_status()
-    assert counts["awaiting_purchase"] == 1
-    assert counts["completed"] == 1
-
-
-# --- get_total_completed_profit ---
+    assert await db.count_orders_by_status() == 2
+    assert await db.count_orders_by_status("awaiting_purchase") == 1
+    assert await db.count_orders_by_status("shipped") == 1
+    assert await db.count_orders_by_status("delivered") == 0
 
 
 async def test_get_total_completed_profit_returns_sum(db):

@@ -3,77 +3,52 @@
 import pytest
 
 from ec_hub.context import AppContext
+from ec_hub.repositories import CandidateRepository, MessageRepository, OrderRepository
 
 
 @pytest.fixture
-def test_settings():
-    return {
-        "exchange_rate": {"fallback_rate": 150.0},
-        "database": {"path": ":memory:"},
-        "line": {},
-    }
+async def ctx():
+    context = AppContext.create(db_path=":memory:")
+    await context.connect()
+    yield context
+    await context.close()
 
 
-@pytest.fixture
-def test_fee_rules():
-    return {
-        "ebay_fees": {"default_rate": 0.1325},
-        "payoneer": {"rate": 0.02},
-        "fx_buffer": {"rate": 0.03},
-        "packing": {"default_cost": 200},
-        "shipping": {
-            "zones": {
-                "US": [{"max_weight_g": 500, "cost": 1500}],
-                "OTHER": [{"max_weight_g": 500, "cost": 2000}],
-            },
-            "destination_zones": {"US": "US"},
-        },
-    }
+async def test_create_app_context():
+    ctx = AppContext.create(db_path=":memory:")
+    assert ctx is not None
+    assert ctx.db is not None
 
 
-async def test_create_context_initializes_db(test_settings, test_fee_rules):
-    ctx = await AppContext.create(
-        settings=test_settings,
-        fee_rules=test_fee_rules,
-        db_path=":memory:",
+async def test_app_context_provides_repositories(ctx):
+    assert isinstance(ctx.candidates, CandidateRepository)
+    assert isinstance(ctx.orders, OrderRepository)
+    assert isinstance(ctx.messages, MessageRepository)
+
+
+async def test_app_context_db_is_connected(ctx):
+    # DB が接続済みで操作可能なことを確認
+    cid = await ctx.candidates.add(
+        item_code="CTX01", source_site="amazon", title_jp="コンテキストテスト",
+        title_en=None, cost_jpy=1000, ebay_price_usd=30.0,
+        net_profit_jpy=1000, margin_rate=1.0,
     )
-    try:
-        assert ctx.db is not None
-        # DB is connected and usable
-        candidates = await ctx.db.get_candidates()
-        assert candidates == []
-    finally:
-        await ctx.close()
+    result = await ctx.candidates.get_by_id(cid)
+    assert result is not None
+    assert result["item_code"] == "CTX01"
 
 
-async def test_context_provides_settings_and_fee_rules(test_settings, test_fee_rules):
-    ctx = await AppContext.create(
-        settings=test_settings,
-        fee_rules=test_fee_rules,
-        db_path=":memory:",
-    )
-    try:
-        assert ctx.settings == test_settings
-        assert ctx.fee_rules == test_fee_rules
-    finally:
-        await ctx.close()
-
-
-async def test_context_async_context_manager(test_settings, test_fee_rules):
-    async with await AppContext.create(
-        settings=test_settings,
-        fee_rules=test_fee_rules,
-        db_path=":memory:",
-    ) as ctx:
-        assert ctx.db is not None
-        cid = await ctx.db.add_candidate(
-            item_code="CTX-TEST",
-            source_site="amazon",
-            title_jp="コンテキストテスト",
-            title_en=None,
-            cost_jpy=1000,
-            ebay_price_usd=30.0,
-            net_profit_jpy=500,
-            margin_rate=0.5,
+async def test_app_context_as_context_manager():
+    async with AppContext.create(db_path=":memory:") as ctx:
+        assert isinstance(ctx.candidates, CandidateRepository)
+        cid = await ctx.candidates.add(
+            item_code="CM01", source_site="amazon", title_jp="CMテスト",
+            title_en=None, cost_jpy=1000, ebay_price_usd=30.0,
+            net_profit_jpy=1000, margin_rate=1.0,
         )
         assert cid is not None
+
+
+async def test_app_context_settings_and_fee_rules(ctx):
+    assert isinstance(ctx.settings, dict)
+    assert isinstance(ctx.fee_rules, dict)

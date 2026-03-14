@@ -378,14 +378,15 @@ class Database:
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
-    async def count_candidates_by_status(self) -> dict[str, int]:
-        """ステータス別の候補件数を取得する."""
-        cursor = await self.db.execute(
-            "SELECT status, COUNT(*) as cnt FROM candidates GROUP BY status"
-        )
-        rows = await cursor.fetchall()
-        return {row["status"]: row["cnt"] for row in rows}
-
+    async def count_candidates_by_status(self, status: str | None = None) -> int:
+        if status:
+            cursor = await self.db.execute(
+                "SELECT COUNT(*) FROM candidates WHERE status = ?", (status,)
+            )
+        else:
+            cursor = await self.db.execute("SELECT COUNT(*) FROM candidates")
+        row = await cursor.fetchone()
+        return row[0]
     async def update_candidate_status(self, candidate_id: int, status: str) -> None:
         await self.db.execute(
             "UPDATE candidates SET status = ?, updated_at = ? WHERE id = ?",
@@ -488,13 +489,15 @@ class Database:
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
-    async def count_orders_by_status(self) -> dict[str, int]:
-        """ステータス別の注文件数を取得する."""
-        cursor = await self.db.execute(
-            "SELECT status, COUNT(*) as cnt FROM orders GROUP BY status"
-        )
-        rows = await cursor.fetchall()
-        return {row["status"]: row["cnt"] for row in rows}
+    async def count_orders_by_status(self, status: str | None = None) -> int:
+        if status:
+            cursor = await self.db.execute(
+                "SELECT COUNT(*) FROM orders WHERE status = ?", (status,)
+            )
+        else:
+            cursor = await self.db.execute("SELECT COUNT(*) FROM orders")
+        row = await cursor.fetchone()
+        return row[0]
 
     async def get_total_completed_profit(self) -> int:
         """完了済み注文の合計利益を取得する."""
@@ -503,7 +506,6 @@ class Database:
         )
         row = await cursor.fetchone()
         return int(row["total"])
-
     async def update_order(self, order_id: int, **fields: object) -> None:
         if not fields:
             return
