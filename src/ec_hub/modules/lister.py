@@ -286,6 +286,24 @@ class Lister:
         logger.info("出品完了: %d 件", listed_count)
         return listed_count
 
+    async def run_selected(self, candidate_ids: list[int]) -> int:
+        """指定された候補IDを選択的に出品する."""
+        limit_info = await self.check_selling_limit()
+        max_listings = limit_info["remaining"]
+
+        if max_listings <= 0:
+            logger.warning("セリングリミットに到達。出品をスキップします。")
+            return 0
+
+        listed_count = 0
+        for cid in candidate_ids[:max_listings]:
+            success = await self.list_candidate(cid)
+            if success:
+                listed_count += 1
+
+        logger.info("選択出品完了: %d / %d 件", listed_count, len(candidate_ids))
+        return listed_count
+
     async def close(self) -> None:
         if self._translator:
             await self._translator.close()

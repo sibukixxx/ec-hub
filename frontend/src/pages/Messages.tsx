@@ -5,28 +5,54 @@ import { api } from '../api';
 import { Alerts } from '../components/Alerts';
 import { Badge } from '../components/Badge';
 import { EmptyRow } from '../components/EmptyRow';
+import { StatusTabs } from '../components/StatusTabs';
 import { inputValue } from '../lib/format';
 import { queryKeys } from '../lib/query-keys';
 import type { Message } from '../types';
+
+const CATEGORIES: Array<string | null> = [
+  null,
+  'shipping_tracking',
+  'condition',
+  'return_cancel',
+  'address_change',
+  'other',
+];
+
+const CATEGORY_LABELS: Record<string, string> = {
+  shipping_tracking: 'Shipping',
+  condition: 'Condition',
+  return_cancel: 'Return/Cancel',
+  address_change: 'Address',
+  other: 'Escalation',
+};
+
+function formatCategoryLabel(value: string | null): string {
+  if (value === null) return 'All';
+  return CATEGORY_LABELS[value] || value;
+}
 
 export function Messages(_props: RoutableProps) {
   const [buyer, setBuyer] = useState('');
   const [appliedBuyer, setAppliedBuyer] = useState<string | undefined>(
     undefined
   );
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<number, string>>({});
   const [sendingId, setSendingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
+  const appliedCategory = categoryFilter ?? undefined;
+
   const {
     data: messages = [],
     isLoading,
     error: queryError,
   } = useQuery<Message[], Error>({
-    queryKey: queryKeys.messages(appliedBuyer),
-    queryFn: () => api.getMessages(appliedBuyer, 100),
+    queryKey: queryKeys.messages(appliedBuyer, appliedCategory),
+    queryFn: () => api.getMessages(appliedBuyer, appliedCategory, 100),
   });
 
   const replyMutation = useMutation({
@@ -57,6 +83,13 @@ export function Messages(_props: RoutableProps) {
   return (
     <div>
       <h2 class="page-title">Messages</h2>
+
+      <StatusTabs
+        statuses={CATEGORIES}
+        current={categoryFilter}
+        onChange={setCategoryFilter}
+        formatLabel={formatCategoryLabel}
+      />
 
       <div class="card" style="margin-bottom:1.5rem">
         <div class="toolbar">
@@ -100,7 +133,10 @@ export function Messages(_props: RoutableProps) {
             </thead>
             <tbody>
               {messages.map((msg) => (
-                <tr key={msg.id}>
+                <tr
+                  key={msg.id}
+                  class={msg.category === 'other' ? 'row-escalation' : ''}
+                >
                   <td>{msg.id}</td>
                   <td>{msg.buyer_username}</td>
                   <td>
@@ -116,7 +152,12 @@ export function Messages(_props: RoutableProps) {
                   <td>{msg.order_ebay_order_id || msg.order_id || '-'}</td>
                   <td>{msg.listing_sku || msg.listing_id || '-'}</td>
                   <td>{msg.candidate_item_code || msg.candidate_id || '-'}</td>
-                  <td>{msg.category || '-'}</td>
+                  <td>
+                    <Badge
+                      status={msg.category || '-'}
+                      class={msg.category === 'other' ? 'rejected' : undefined}
+                    />
+                  </td>
                   <td style="min-width:220px;white-space:pre-wrap">
                     {msg.body}
                   </td>

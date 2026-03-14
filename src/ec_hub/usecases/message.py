@@ -16,8 +16,13 @@ class MessageUseCase:
     def __init__(self, ctx: AppContext) -> None:
         self._ctx = ctx
 
-    async def list_messages(self, buyer_username: str | None = None, limit: int = 50) -> list[dict]:
-        return await self._ctx.messages.list(buyer_username=buyer_username, limit=limit)
+    async def list_messages(
+        self,
+        buyer_username: str | None = None,
+        category: str | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        return await self._ctx.messages.list(buyer_username=buyer_username, category=category, limit=limit)
 
     async def reply(self, message_id: int, body: str) -> dict:
         original = await self._ctx.messages.get_by_id(message_id)
