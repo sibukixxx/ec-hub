@@ -416,7 +416,7 @@ tr:hover td {
 }
 
 /* Checkbox in tables */
-input[type="checkbox"] {
+input[type='checkbox'] {
   accent-color: var(--accent);
   width: 16px;
   height: 16px;
