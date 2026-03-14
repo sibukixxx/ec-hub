@@ -236,3 +236,142 @@ class TestFeeRulesValidation:
 
         with pytest.raises(Exception):
             load_fee_rules(p)
+
+
+# ---------------------------------------------------------------------------
+# settings.local.yaml overlay tests
+# ---------------------------------------------------------------------------
+
+class TestSettingsLocalOverlay:
+    """settings.local.yaml should override settings.yaml values."""
+
+    def test_local_overrides_base_value(self, tmp_path: Path):
+        base = tmp_path / "settings.yaml"
+        base.write_text(MINIMAL_SETTINGS_YAML, encoding="utf-8")
+        local = tmp_path / "settings.local.yaml"
+        local.write_text("ebay:\n  app_id: local-app-id\n", encoding="utf-8")
+
+        s = load_settings(base)
+        assert s.ebay.app_id == "local-app-id"
+        # Non-overridden values preserved
+        assert s.ebay.cert_id == "test-cert"
+
+    def test_local_adds_new_section(self, tmp_path: Path):
+        base = tmp_path / "settings.yaml"
+        base.write_text(MINIMAL_SETTINGS_YAML, encoding="utf-8")
+        local = tmp_path / "settings.local.yaml"
+        local.write_text("yahoo_shopping:\n  app_id: local-yahoo\n", encoding="utf-8")
+
+        s = load_settings(base)
+        assert s.yahoo_shopping.app_id == "local-yahoo"
+
+    def test_local_does_not_exist_is_fine(self, settings_yaml: Path):
+        # No settings.local.yaml in tmp_path — should not raise
+        s = load_settings(settings_yaml)
+        assert s.ebay.app_id == "test-app"
+
+    def test_env_overrides_local(self, tmp_path: Path, monkeypatch):
+        base = tmp_path / "settings.yaml"
+        base.write_text(MINIMAL_SETTINGS_YAML, encoding="utf-8")
+        local = tmp_path / "settings.local.yaml"
+        local.write_text("ebay:\n  app_id: local-app-id\n", encoding="utf-8")
+        monkeypatch.setenv("EC_HUB_EBAY__APP_ID", "env-app-id")
+
+        s = load_settings(base)
+        assert s.ebay.app_id == "env-app-id"
+
+    def test_deep_merge_preserves_nested_keys(self, tmp_path: Path):
+        base = tmp_path / "settings.yaml"
+        base.write_text(MINIMAL_SETTINGS_YAML, encoding="utf-8")
+        local = tmp_path / "settings.local.yaml"
+        local.write_text("amazon:\n  partner_tag: local-tag\n", encoding="utf-8")
+
+        s = load_settings(base)
+        # Overridden
+        assert s.amazon.partner_tag == "local-tag"
+        # Preserved from base
+        assert s.amazon.access_key == "test-access"
+        assert s.amazon.secret_key == "test-secret"
+
+
+# ---------------------------------------------------------------------------
+# Path resolution tests
+# ---------------------------------------------------------------------------
+
+class TestPathResolution:
+    """Settings.resolve_paths should resolve relative paths against project root."""
+
+    def test_resolves_relative_db_path(self):
+        from ec_hub.config_schema import Settings
+
+        s = Settings.model_validate(yaml.safe_load(MINIMAL_SETTINGS_YAML))
+        project_root = Path("/fake/project")
+        s.resolve_paths(project_root)
+        assert s.database.resolved_path == Path("/fake/project/db/test.db")
+
+    def test_preserves_absolute_db_path(self):
+        from ec_hub.config_schema import Settings
+
+        data = yaml.safe_load(MINIMAL_SETTINGS_YAML)
+        data["database"]["path"] = "/absolute/path/db.sqlite"
+        s = Settings.model_validate(data)
+        s.resolve_paths(Path("/fake/project"))
+        assert s.database.resolved_path == Path("/absolute/path/db.sqlite")
+
+    def test_preserves_memory_db(self):
+        from ec_hub.config_schema import Settings
+
+        data = yaml.safe_load(MINIMAL_SETTINGS_YAML)
+        data["database"]["path"] = ":memory:"
+        s = Settings.model_validate(data)
+        s.resolve_paths(Path("/fake/project"))
+        assert s.database.resolved_path == Path(":memory:")
+
+
+# ---------------------------------------------------------------------------
+# Service availability validation tests
+# ---------------------------------------------------------------------------
+
+class TestServiceAvailability:
+    """Settings.validate_required_services should classify services correctly."""
+
+    def test_all_keys_present(self):
+        from ec_hub.config_schema import Settings
+
+        s = Settings.model_validate(yaml.safe_load(MINIMAL_SETTINGS_YAML))
+        result = s.validate_required_services()
+        assert "ebay" in result.available
+        assert "amazon" in result.available
+        assert "rakuten" in result.available
+        assert "deepl" in result.available
+        assert "claude" in result.available
+        assert "line" in result.available
+        assert result.unavailable_required == []
+
+    def test_missing_ebay_keys_is_required_failure(self):
+        from ec_hub.config_schema import Settings
+
+        data = yaml.safe_load(MINIMAL_SETTINGS_YAML)
+        data["ebay"]["app_id"] = ""
+        s = Settings.model_validate(data)
+        result = s.validate_required_services()
+        assert "ebay" in result.unavailable_required
+
+    def test_missing_optional_keys_is_degraded(self):
+        from ec_hub.config_schema import Settings
+
+        data = yaml.safe_load(MINIMAL_SETTINGS_YAML)
+        data["deepl"]["api_key"] = ""
+        data["claude"]["api_key"] = ""
+        s = Settings.model_validate(data)
+        result = s.validate_required_services()
+        assert "deepl" in result.degraded
+        assert "claude" in result.degraded
+        assert "ebay" in result.available
+
+    def test_yahoo_shopping_empty_by_default_is_degraded(self):
+        from ec_hub.config_schema import Settings
+
+        s = Settings.model_validate(yaml.safe_load(MINIMAL_SETTINGS_YAML))
+        result = s.validate_required_services()
+        assert "yahoo_shopping" in result.degraded

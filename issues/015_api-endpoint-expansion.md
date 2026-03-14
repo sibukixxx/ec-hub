@@ -13,7 +13,7 @@
 
 ## やるべきこと
 - [x] `POST /api/research/run` — リサーチ手動実行
-- [ ] `GET /api/research/status` — リサーチ実行状況 (非同期ジョブ管理が必要。将来対応)
+- [x] `GET /api/research/status` — `POST /api/research/run` を非同期化し、`GET /api/research/runs/{id}` で `completed_at` の有無により実行状況を確認可能に
 - [x] `POST /api/listing/run` — 承認済み候補の出品実行
 - [x] `GET /api/listing/limits` — eBay 出品制限確認
 - [x] `POST /api/orders/check` — 新規注文チェック
@@ -30,5 +30,6 @@
 - `src/ec_hub/modules/*.py`
 
 ## 残課題
-- `POST /api/research/run` はあるが、非同期ジョブ前提の `GET /api/research/status` は未実装
-- 代わりに `GET /api/research/runs` / `GET /api/research/runs/{id}` はあるため、今後は専用 status API を足すか既存の履歴 API に役割を寄せるかを整理する必要がある
+- [x] `POST /api/research/run` を `BackgroundTasks` で非同期化し、即座に `run_id` を返すように変更済み
+- [x] クライアントは `GET /api/research/runs/{run_id}` をポーリングし、`completed_at` の有無で完了判定可能
+- 将来的に本格的なジョブキュー（arq, Celery 等）が必要になった場合は別途検討
