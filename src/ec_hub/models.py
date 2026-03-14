@@ -69,6 +69,12 @@ class CandidateStatus(str, Enum):
     LISTED = "listed"
 
 
+class ListingStatus(str, Enum):
+    ACTIVE = "active"
+    SOLD = "sold"
+    ENDED = "ended"
+
+
 class Candidate(BaseModel):
     """リサーチ候補商品."""
 
@@ -93,6 +99,22 @@ class Candidate(BaseModel):
     ebay_url: str | None = None
     research_run_id: int | None = None
     status: CandidateStatus = CandidateStatus.PENDING
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Listing(BaseModel):
+    """eBay出品情報."""
+
+    id: int | None = None
+    candidate_id: int
+    sku: str
+    offer_id: str | None = None
+    listing_id: str | None = None
+    title_en: str
+    description_html: str | None = None
+    listed_price_usd: float
+    listed_fx_rate: float | None = None
+    status: ListingStatus = ListingStatus.ACTIVE
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

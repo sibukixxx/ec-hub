@@ -101,11 +101,13 @@ class OrderManager:
         sale_price_usd: float,
         destination_country: str,
         candidate_id: int | None = None,
+        listing_id: int | None = None,
     ) -> int:
         """新規注文をDBに登録しLINE通知する."""
         order_id = await self._db.add_order(
             ebay_order_id=ebay_order_id,
             candidate_id=candidate_id,
+            listing_id=listing_id,
             buyer_username=buyer_username,
             sale_price_usd=sale_price_usd,
             destination_country=destination_country,
