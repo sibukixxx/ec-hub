@@ -169,7 +169,7 @@ def calc(cost: int, price: float, weight: int, dest: str) -> None:
 async def _calc(cost: int, price: float, weight: int, dest: str) -> None:
     settings = load_settings()
     fee_rules = load_fee_rules()
-    async with Database(settings.get("database", {}).get("path", "db/ebay.db")) as db:
+    async with Database(settings.database.path) as db:
         tracker = ProfitTracker(db, settings, fee_rules)
         fx_rate = await tracker.get_fx_rate()
         breakdown = tracker.calc_net_profit(
@@ -230,7 +230,7 @@ async def _research(queries: list[str] | None, pages: int) -> None:
 
     settings = load_settings()
     fee_rules = load_fee_rules()
-    async with Database(settings.get("database", {}).get("path", "db/ebay.db")) as db:
+    async with Database(settings.database.path) as db:
         researcher = Researcher(db, settings, fee_rules)
         console.print("[bold blue]リサーチを開始...[/]")
         count = await researcher.run(queries, pages=pages)
@@ -277,7 +277,7 @@ def candidates(status: str | None, limit: int) -> None:
 
 async def _candidates(status: str | None, limit: int) -> None:
     settings = load_settings()
-    async with Database(settings.get("database", {}).get("path", "db/ebay.db")) as db:
+    async with Database(settings.database.path) as db:
         rows = await db.get_candidates(status=status, limit=limit)
 
     if not rows:
@@ -326,7 +326,7 @@ def orders(status: str | None, limit: int) -> None:
 
 async def _orders(status: str | None, limit: int) -> None:
     settings = load_settings()
-    async with Database(settings.get("database", {}).get("path", "db/ebay.db")) as db:
+    async with Database(settings.database.path) as db:
         rows = await db.get_orders(status=status, limit=limit)
 
     if not rows:

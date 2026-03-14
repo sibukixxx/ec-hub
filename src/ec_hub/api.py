@@ -38,7 +38,7 @@ STATIC_DIR = Path(__file__).parent.parent.parent / "frontend" / "dist"
 async def lifespan(app: FastAPI):
     settings = load_settings()
     fee_rules = load_fee_rules()
-    db_path = settings.get("database", {}).get("path", "db/ebay.db")
+    db_path = settings.database.path
     db = Database(db_path)
     await db.connect()
     app.state.db = db
