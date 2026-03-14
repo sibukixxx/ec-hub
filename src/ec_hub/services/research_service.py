@@ -33,6 +33,14 @@ class ResearchService:
         """候補のステータスを更新する."""
         await self._ctx.db.update_candidate_status(candidate_id, status)
 
+    async def get_research_runs(self, limit: int = 20) -> list[dict]:
+        """リサーチ実行履歴を取得する."""
+        return await self._ctx.db.get_research_runs(limit=limit)
+
+    async def get_research_run(self, run_id: int) -> dict | None:
+        """リサーチ実行の詳細を取得する."""
+        return await self._ctx.db.get_research_run(run_id)
+
     async def run_research(
         self, queries: list[str] | None = None, pages: int = 1
     ) -> int:

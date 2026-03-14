@@ -375,9 +375,10 @@ class Researcher:
                 logger.info("'%s': eBay %d 件を仕入れ検索中...", query, len(ebay_results))
 
                 run_id = await self._db.create_research_run(
-                    query=query, ebay_hits=len(ebay_results),
+                    query=query,
+                    ebay_results_count=len(ebay_results),
                 )
-                query_registered = 0
+                query_candidates = 0
 
                 for ebay_product in ebay_results:
                     if total_registered >= self.max_candidates_per_run:
@@ -387,9 +388,9 @@ class Researcher:
                     )
                     if candidate_id is not None:
                         total_registered += 1
-                        query_registered += 1
+                        query_candidates += 1
 
-                await self._db.update_research_run(run_id, candidates_found=query_registered)
+                await self._db.complete_research_run(run_id, query_candidates)
         finally:
             for searcher in searchers:
                 await searcher.close()

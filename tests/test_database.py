@@ -393,3 +393,142 @@ async def test_add_message_with_listing_id(db):
     )
     msg = await db.get_message_by_id(mid)
     assert msg["listing_id"] == lid
+
+
+
+# --- research_runs ---
+
+
+async def test_create_research_run(db):
+    run_id = await db.create_research_run(
+        query="japanese vintage",
+        ebay_results_count=20,
+    )
+    assert run_id is not None
+    assert run_id > 0
+
+
+async def test_complete_research_run(db):
+    run_id = await db.create_research_run(
+        query="anime figure",
+        ebay_results_count=15,
+    )
+    await db.complete_research_run(run_id, candidates_found=5)
+    run = await db.get_research_run(run_id)
+    assert run is not None
+    assert run["query"] == "anime figure"
+    assert run["ebay_results_count"] == 15
+    assert run["candidates_found"] == 5
+    assert run["completed_at"] is not None
+
+
+async def test_get_research_runs(db):
+    await db.create_research_run(query="q1", ebay_results_count=10)
+    await db.create_research_run(query="q2", ebay_results_count=20)
+    runs = await db.get_research_runs(limit=10)
+    assert len(runs) == 2
+
+
+# --- candidate provenance (ebay_item_id, research_run_id) ---
+
+
+async def test_add_candidate_with_provenance(db):
+    run_id = await db.create_research_run(query="test", ebay_results_count=5)
+    cid = await db.add_candidate(
+        item_code="B09PROV",
+        source_site="amazon",
+        title_jp="出所テスト商品",
+        title_en=None,
+        cost_jpy=3000,
+        ebay_price_usd=80.0,
+        net_profit_jpy=5000,
+        margin_rate=1.67,
+        ebay_item_id="eBay123456",
+        ebay_title="eBay Test Product",
+        ebay_url="https://www.ebay.com/itm/123456",
+        research_run_id=run_id,
+    )
+    candidate = await db.get_candidate_by_id(cid)
+    assert candidate["ebay_item_id"] == "eBay123456"
+    assert candidate["ebay_title"] == "eBay Test Product"
+    assert candidate["ebay_url"] == "https://www.ebay.com/itm/123456"
+    assert candidate["research_run_id"] == run_id
+
+
+# --- upsert (dedup) ---
+
+
+async def test_upsert_candidate_creates_new_when_not_exists(db):
+    cid = await db.upsert_candidate(
+        item_code="UPSERT001",
+        source_site="amazon",
+        ebay_item_id="EBAY001",
+        title_jp="新規候補",
+        title_en=None,
+        cost_jpy=3000,
+        ebay_price_usd=80.0,
+        net_profit_jpy=5000,
+        margin_rate=1.67,
+    )
+    assert cid is not None
+    candidates = await db.get_candidates()
+    assert len(candidates) == 1
+
+
+async def test_upsert_candidate_updates_existing(db):
+    cid1 = await db.upsert_candidate(
+        item_code="UPSERT002",
+        source_site="amazon",
+        ebay_item_id="EBAY002",
+        title_jp="初回登録",
+        title_en=None,
+        cost_jpy=3000,
+        ebay_price_usd=80.0,
+        net_profit_jpy=5000,
+        margin_rate=1.67,
+    )
+    cid2 = await db.upsert_candidate(
+        item_code="UPSERT002",
+        source_site="amazon",
+        ebay_item_id="EBAY002",
+        title_jp="初回登録",
+        title_en=None,
+        cost_jpy=2800,
+        ebay_price_usd=85.0,
+        net_profit_jpy=6000,
+        margin_rate=2.14,
+    )
+    # Same row should be updated, not duplicated
+    assert cid1 == cid2
+    candidates = await db.get_candidates()
+    assert len(candidates) == 1
+    assert candidates[0]["cost_jpy"] == 2800
+    assert candidates[0]["ebay_price_usd"] == 85.0
+
+
+async def test_upsert_candidate_different_ebay_item_creates_new(db):
+    """同じ仕入れ商品でもeBay商品が異なれば別候補."""
+    await db.upsert_candidate(
+        item_code="UPSERT003",
+        source_site="amazon",
+        ebay_item_id="EBAY_A",
+        title_jp="商品A",
+        title_en=None,
+        cost_jpy=3000,
+        ebay_price_usd=80.0,
+        net_profit_jpy=5000,
+        margin_rate=1.67,
+    )
+    await db.upsert_candidate(
+        item_code="UPSERT003",
+        source_site="amazon",
+        ebay_item_id="EBAY_B",
+        title_jp="商品A",
+        title_en=None,
+        cost_jpy=3000,
+        ebay_price_usd=90.0,
+        net_profit_jpy=6000,
+        margin_rate=2.0,
+    )
+    candidates = await db.get_candidates()
+    assert len(candidates) == 2
