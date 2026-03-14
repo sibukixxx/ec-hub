@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Database (mounted as volume)
+db/
+
+# ML models (mounted as volume)
+models/
+
+# IDE / OS
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Docs / Issues
+*.md
+!README.md
+issues/
+z-ai/
+
+# Output
+output/
+*.csv
+*.json
+!config/*.yaml
+!frontend/package.json
