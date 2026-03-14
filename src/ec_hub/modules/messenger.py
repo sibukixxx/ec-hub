@@ -185,6 +185,12 @@ class Messenger:
         Returns:
             True: 自動応答した, False: エスカレーションした
         """
+        # Resolve listing_id from order if not provided
+        if listing_id is None and order_id is not None:
+            order = await self._db.get_order_by_id(order_id)
+            if order:
+                listing_id = order.get("listing_id")
+
         category = await self.classify_message(body)
 
         await self._db.add_message(
