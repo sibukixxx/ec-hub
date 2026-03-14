@@ -86,6 +86,8 @@ class Candidate(BaseModel):
     ebay_sold_count_30d: int = 0
     image_url: str | None = None
     source_url: str | None = None
+    match_score: int | None = None
+    match_reason: str | None = None
     status: CandidateStatus = CandidateStatus.PENDING
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
