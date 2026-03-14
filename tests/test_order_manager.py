@@ -1,5 +1,7 @@
 """Order Manager モジュールのテスト."""
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from ec_hub.db import Database
@@ -205,3 +207,79 @@ async def test_resolve_listing_from_sku(order_manager, db):
     candidate = await db.get_candidate_by_id(listing["candidate_id"])
     assert candidate is not None
     assert candidate["item_code"] == "B09RESOLVE"
+
+
+async def test_check_new_orders_resolves_traceability_from_line_items(order_manager, db):
+    cid = await db.add_candidate(
+        item_code="B09ORDERTRACE",
+        source_site="amazon",
+        title_jp="注文トレース商品",
+        title_en="Order Trace Product",
+        cost_jpy=5000,
+        ebay_price_usd=120.0,
+        net_profit_jpy=7000,
+        margin_rate=1.4,
+    )
+    lid = await db.add_listing(
+        candidate_id=cid,
+        sku=f"ECHUB-{cid}",
+        title_en="Order Trace Product",
+        listed_price_usd=120.0,
+        listed_fx_rate=150.0,
+        listing_id="EBAY-LIST-ORDER-1",
+    )
+    order_manager._ebay_api = AsyncMock()
+    order_manager._ebay_api.is_configured = True
+    order_manager._ebay_api.get_orders = AsyncMock(return_value={
+        "orders": [
+            {
+                "orderId": "ORDER-TRACE-001",
+                "buyer": {"username": "trace_buyer"},
+                "pricingSummary": {"total": {"value": "120.0"}},
+                "fulfillmentStartInstructions": [
+                    {"shippingStep": {"shipTo": {"contactAddress": {"countryCode": "US"}}}},
+                ],
+                "lineItems": [
+                    {"sku": f"ECHUB-{cid}", "listingId": "EBAY-LIST-ORDER-1"},
+                ],
+            },
+        ],
+    })
+
+    orders = await order_manager.check_new_orders()
+    assert len(orders) == 1
+    assert orders[0]["listing_id"] == lid
+    assert orders[0]["candidate_id"] == cid
+
+
+async def test_register_order_marks_listing_sold(order_manager, db):
+    cid = await db.add_candidate(
+        item_code="B09SOLD",
+        source_site="amazon",
+        title_jp="販売済み商品",
+        title_en="Sold Product",
+        cost_jpy=3000,
+        ebay_price_usd=80.0,
+        net_profit_jpy=4000,
+        margin_rate=1.33,
+    )
+    lid = await db.add_listing(
+        candidate_id=cid,
+        sku=f"ECHUB-{cid}",
+        title_en="Sold Product",
+        listed_price_usd=80.0,
+        listed_fx_rate=150.0,
+    )
+
+    await order_manager.register_order(
+        ebay_order_id="TRACE-SOLD-001",
+        buyer_username="trace_buyer",
+        sale_price_usd=80.0,
+        destination_country="US",
+        listing_id=lid,
+    )
+
+    listing = await db.get_listing_by_id(lid)
+    candidate = await db.get_candidate_by_id(cid)
+    assert listing["status"] == "sold"
+    assert candidate["status"] == "listed"

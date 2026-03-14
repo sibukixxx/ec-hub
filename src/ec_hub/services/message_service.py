@@ -26,6 +26,8 @@ class MessageService:
         body: str,
         ebay_message_id: str | None = None,
         order_id: int | None = None,
+        listing_id: int | None = None,
+        candidate_id: int | None = None,
     ) -> bool:
         """メッセージを分類し自動返信する."""
         return await self._messenger.handle_message(
@@ -33,6 +35,8 @@ class MessageService:
             body=body,
             ebay_message_id=ebay_message_id,
             order_id=order_id,
+            listing_id=listing_id,
+            candidate_id=candidate_id,
         )
 
     async def check_and_process_messages(self) -> int:

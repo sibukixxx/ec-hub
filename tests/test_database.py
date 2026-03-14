@@ -299,6 +299,21 @@ async def test_get_listing_by_sku_returns_none_when_not_exists(db):
     assert result is None
 
 
+async def test_get_listing_by_external_id_returns_listing(db):
+    cid = await _create_candidate(db)
+    await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-EXT",
+        title_en="External ID Test",
+        listed_price_usd=50.0,
+        listed_fx_rate=150.0,
+        listing_id="EBAY-LISTING-001",
+    )
+    result = await db.get_listing_by_external_id("EBAY-LISTING-001")
+    assert result is not None
+    assert result["sku"] == "ECHUB-EXT"
+
+
 async def test_update_listing(db):
     cid = await _create_candidate(db)
     lid = await db.add_listing(
@@ -335,6 +350,27 @@ async def test_add_order_with_listing_id(db):
     assert order["candidate_id"] == cid
 
 
+async def test_add_order_derives_candidate_from_listing(db):
+    cid = await _create_candidate(db)
+    lid = await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-DERIVE",
+        title_en="Derived Candidate",
+        listed_price_usd=80.0,
+        listed_fx_rate=150.0,
+    )
+    oid = await db.add_order(
+        ebay_order_id="ORD-DERIVE-001",
+        listing_id=lid,
+        sale_price_usd=80.0,
+    )
+    order = await db.get_order_by_id(oid)
+    assert order["listing_id"] == lid
+    assert order["candidate_id"] == cid
+    assert order["listing_sku"] == "ECHUB-DERIVE"
+    assert order["candidate_item_code"] == "B09LISTING"
+
+
 async def test_add_message_with_listing_id(db):
     cid = await _create_candidate(db)
     lid = await db.add_listing(
@@ -358,6 +394,34 @@ async def test_add_message_with_listing_id(db):
     )
     msg = await db.get_message_by_id(mid)
     assert msg["listing_id"] == lid
+
+
+async def test_add_message_derives_links_from_order(db):
+    cid = await _create_candidate(db)
+    lid = await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-MSG-ORD",
+        title_en="Message Derive Test",
+        listed_price_usd=80.0,
+        listed_fx_rate=150.0,
+    )
+    oid = await db.add_order(
+        ebay_order_id="ORD-MSG-DERIVE",
+        listing_id=lid,
+        sale_price_usd=80.0,
+    )
+    mid = await db.add_message(
+        buyer_username="buyer_trace",
+        body="Where is my order?",
+        order_id=oid,
+    )
+    msg = await db.get_message_by_id(mid)
+    assert msg["order_id"] == oid
+    assert msg["listing_id"] == lid
+    assert msg["candidate_id"] == cid
+    assert msg["order_ebay_order_id"] == "ORD-MSG-DERIVE"
+    assert msg["listing_sku"] == "ECHUB-MSG-ORD"
+    assert msg["candidate_item_code"] == "B09LISTING"
 
 
 
