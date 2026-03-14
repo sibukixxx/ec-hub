@@ -25,11 +25,11 @@ from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import LabelEncoder
 
+from ec_hub.config import get_price_model_path, load_settings
+from ec_hub.config_schema import Settings
 from ec_hub.db import Database
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_MODEL_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "price_model.pkl"
 
 # Known categories and sources for label encoding
 KNOWN_SOURCES = ["amazon", "rakuten", "yahoo_shopping", "unknown"]
@@ -73,8 +73,9 @@ class PricePrediction(BaseModel):
 class PricePredictor:
     """eBay販売価格の予測モデル."""
 
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database, settings: Settings | dict | None = None) -> None:
         self._db = db
+        self._settings = settings if settings is not None else load_settings()
         self._model: GradientBoostingRegressor | None = None
         self._source_encoder = LabelEncoder()
         self._category_encoder = LabelEncoder()
@@ -292,9 +293,14 @@ class PricePredictor:
 
         return min(1.0, base * 0.8 + sales_boost + 0.1)
 
+    def _resolve_model_path(self, path: str | Path | None = None) -> Path:
+        if path is not None:
+            return Path(path)
+        return get_price_model_path(self._settings)
+
     def save(self, path: str | Path | None = None) -> None:
         """学習済みモデルをファイルに保存する."""
-        save_path = Path(path) if path else DEFAULT_MODEL_PATH
+        save_path = self._resolve_model_path(path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
 
         data = {
@@ -316,7 +322,7 @@ class PricePredictor:
         Returns:
             True if loaded successfully, False otherwise
         """
-        load_path = Path(path) if path else DEFAULT_MODEL_PATH
+        load_path = self._resolve_model_path(path)
         if not load_path.exists():
             logger.info("モデルファイルなし: %s", load_path)
             return False

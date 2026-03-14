@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 
 from ec_hub.config import load_fee_rules, load_settings
-from ec_hub.config_schema import Settings
+from ec_hub.config_schema import FeeRules, Settings
 from ec_hub.db import Database
 from ec_hub.repositories import CandidateRepository, MessageRepository, OrderRepository
 
@@ -21,8 +21,8 @@ class AppContext:
     def __init__(
         self,
         *,
-        settings: dict,
-        fee_rules: dict,
+        settings: Settings | dict,
+        fee_rules: FeeRules | dict,
         db: Database,
     ) -> None:
         self.settings = settings
@@ -47,12 +47,12 @@ class AppContext:
             settings = load_settings(settings_path)
         except FileNotFoundError:
             logger.warning("settings.yaml not found, using empty settings")
-            settings = {}
+            settings = Settings()
         try:
             fee_rules = load_fee_rules(fee_rules_path)
         except FileNotFoundError:
             logger.warning("fee_rules.yaml not found, using empty fee_rules")
-            fee_rules = {}
+            fee_rules = FeeRules()
 
         # Resolve paths and optionally validate services
         if isinstance(settings, Settings):

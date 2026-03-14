@@ -4,6 +4,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from ec_hub.api import app, get_ctx
+from ec_hub.config_schema import Settings
 from ec_hub.context import AppContext
 from ec_hub.db import Database
 from ec_hub.scheduler import Scheduler
@@ -82,6 +83,18 @@ class TestSchedulerInit:
         assert "order_manager" in job_names
         assert "messenger" in job_names
         assert "profit_tracker" in job_names
+
+    def test_registers_jobs_from_typed_settings_model(self, test_settings, test_fee_rules):
+        settings = Settings.model_validate(test_settings)
+        db = Database(":memory:")
+        ctx = AppContext(settings=settings, fee_rules=test_fee_rules, db=db)
+        scheduler = Scheduler(ctx)
+        assert set(scheduler.get_job_names()) == {
+            "researcher",
+            "order_manager",
+            "messenger",
+            "profit_tracker",
+        }
 
     def test_no_scheduler_config_registers_no_jobs(self, test_fee_rules):
         """scheduler 設定がない場合はジョブが登録されない."""

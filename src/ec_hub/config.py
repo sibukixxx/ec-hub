@@ -13,6 +13,7 @@ from ec_hub.config_schema import FeeRules, Settings
 
 logger = logging.getLogger(__name__)
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _CONFIG_DIR = Path(__file__).resolve().parent.parent.parent / "config"
 
 # Environment variable prefix for overrides
@@ -33,20 +34,37 @@ def _deep_merge(base: dict, override: dict) -> dict:
 def _apply_env_overrides(data: dict) -> dict:
     """Apply environment variable overrides to settings dict.
 
-    Format: EC_HUB_<SECTION>__<KEY> (double underscore separates nesting).
-    Example: EC_HUB_EBAY__APP_ID overrides data["ebay"]["app_id"]
+    Format: EC_HUB_<SECTION>__<KEY>[__<NESTED_KEY>...]
+    Example: EC_HUB_SCHEDULER__RESEARCHER__CRON overrides
+    data["scheduler"]["researcher"]["cron"].
     """
     for key, value in os.environ.items():
         if not key.startswith(_ENV_PREFIX):
             continue
         parts = key[len(_ENV_PREFIX) :].lower().split("__")
-        if len(parts) != 2:
+        if len(parts) < 2:
             continue
-        section, field = parts
-        if section not in data:
-            data[section] = {}
-        data[section][field] = value
+        target = data
+        for part in parts[:-1]:
+            current = target.get(part)
+            if not isinstance(current, dict):
+                current = {}
+                target[part] = current
+            target = current
+        target[parts[-1]] = value
     return data
+
+
+def _coerce_settings(settings: Settings | dict | None = None) -> Settings:
+    """Normalize settings into a resolved typed model."""
+    if isinstance(settings, Settings):
+        resolved = settings
+    elif settings is None:
+        resolved = Settings()
+    else:
+        resolved = Settings.model_validate(settings)
+    resolved.resolve_paths(_PROJECT_ROOT)
+    return resolved
 
 
 def load_settings(path: Path | None = None) -> Settings:
@@ -67,7 +85,7 @@ def load_settings(path: Path | None = None) -> Settings:
         logger.info("Loaded local settings overlay: %s", local_path)
 
     raw = _apply_env_overrides(raw)
-    return Settings.model_validate(raw)
+    return _coerce_settings(Settings.model_validate(raw))
 
 
 def load_fee_rules(path: Path | None = None) -> FeeRules:
@@ -76,3 +94,27 @@ def load_fee_rules(path: Path | None = None) -> FeeRules:
     with open(p, encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
     return FeeRules.model_validate(raw)
+
+
+def get_price_model_path(settings: Settings | dict | None = None) -> Path:
+    """Resolve the configured price model path."""
+    if settings is None:
+        try:
+            resolved = load_settings()
+        except FileNotFoundError:
+            resolved = _coerce_settings()
+    else:
+        resolved = _coerce_settings(settings)
+    return resolved.paths.resolved_price_model_path or _PROJECT_ROOT / "models" / "price_model.pkl"
+
+
+def get_frontend_dist_path(settings: Settings | dict | None = None) -> Path:
+    """Resolve the configured frontend build directory."""
+    if settings is None:
+        try:
+            resolved = load_settings()
+        except FileNotFoundError:
+            resolved = _coerce_settings()
+    else:
+        resolved = _coerce_settings(settings)
+    return resolved.paths.resolved_frontend_dist_path or _PROJECT_ROOT / "frontend" / "dist"

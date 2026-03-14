@@ -28,6 +28,21 @@ class _DictCompatMixin:
         except AttributeError:
             raise KeyError(key)
 
+    def __contains__(self, key: object) -> bool:
+        return isinstance(key, str) and hasattr(self, key)
+
+    def keys(self):
+        return self.model_dump().keys()
+
+    def values(self):
+        return self.model_dump().values()
+
+    def items(self):
+        return self.model_dump().items()
+
+    def __iter__(self):
+        return iter(self.model_dump())
+
 
 class _ConfigModel(_DictCompatMixin, BaseModel):
     """Base model for all config sections with dict-compatible access."""
@@ -92,6 +107,13 @@ class DatabaseConfig(_ConfigModel):
     resolved_path: Path | None = None
 
 
+class PathsConfig(_ConfigModel):
+    price_model_path: str = "models/price_model.pkl"
+    frontend_dist_path: str = "frontend/dist"
+    resolved_price_model_path: Path | None = None
+    resolved_frontend_dist_path: Path | None = None
+
+
 class SchedulerCronJob(_ConfigModel):
     cron: str | None = None
     interval_minutes: int | None = None
@@ -151,18 +173,30 @@ class Settings(_ConfigModel):
     yahoo_shopping: YahooShoppingConfig = Field(default_factory=YahooShoppingConfig)
     exchange_rate: ExchangeRateConfig = Field(default_factory=ExchangeRateConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    paths: PathsConfig = Field(default_factory=PathsConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     research: ResearchConfig = Field(default_factory=ResearchConfig)
     muji: MujiConfig = Field(default_factory=MujiConfig)
     listing: ListingConfig = Field(default_factory=ListingConfig)
 
+    @staticmethod
+    def _resolve_path(path_value: str, project_root: Path) -> Path:
+        path = Path(path_value)
+        if path_value != ":memory:" and not path.is_absolute():
+            return project_root / path
+        return path
+
     def resolve_paths(self, project_root: Path) -> None:
         """Resolve relative paths in config against project root."""
-        db_path = Path(self.database.path)
-        if str(self.database.path) != ":memory:" and not db_path.is_absolute():
-            self.database.resolved_path = project_root / db_path
-        else:
-            self.database.resolved_path = db_path
+        self.database.resolved_path = self._resolve_path(self.database.path, project_root)
+        self.paths.resolved_price_model_path = self._resolve_path(
+            self.paths.price_model_path,
+            project_root,
+        )
+        self.paths.resolved_frontend_dist_path = self._resolve_path(
+            self.paths.frontend_dist_path,
+            project_root,
+        )
 
     def validate_required_services(self) -> ServiceAvailability:
         """Check which services are available based on API key configuration.

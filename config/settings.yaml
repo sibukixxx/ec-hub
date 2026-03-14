@@ -47,6 +47,11 @@ exchange_rate:
 database:
   path: "db/ebay.db"
 
+# パス設定
+paths:
+  price_model_path: "models/price_model.pkl"
+  frontend_dist_path: "frontend/dist"
+
 # スケジューラ
 scheduler:
   researcher:

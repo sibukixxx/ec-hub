@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
@@ -17,6 +16,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from ec_hub.config import get_frontend_dist_path
 from ec_hub.context import AppContext
 from ec_hub.exceptions import InvalidStatusError, NotFoundError
 from ec_hub.modules.price_predictor import PricePredictor
@@ -33,7 +33,7 @@ from ec_hub.usecases.profit_calc import ProfitCalcUseCase
 
 logger = logging.getLogger(__name__)
 
-STATIC_DIR = Path(__file__).parent.parent.parent / "frontend" / "dist"
+STATIC_DIR = get_frontend_dist_path()
 
 
 @asynccontextmanager
@@ -245,7 +245,7 @@ async def compare_prices(
             matched.append(c)
 
     # ML prediction
-    predictor = PricePredictor(ctx.db)
+    predictor = PricePredictor(ctx.db, ctx.settings)
     predictor.load()
     if not predictor.is_trained:
         await predictor.train(min_samples=5)
@@ -266,7 +266,7 @@ async def predict_price(
     req: PricePredictRequest,
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict:
-    predictor = PricePredictor(ctx.db)
+    predictor = PricePredictor(ctx.db, ctx.settings)
     predictor.load()
     if not predictor.is_trained:
         await predictor.train(min_samples=5)
@@ -289,7 +289,7 @@ async def predict_price(
 async def train_model(
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict:
-    predictor = PricePredictor(ctx.db)
+    predictor = PricePredictor(ctx.db, ctx.settings)
     score = await predictor.train(min_samples=5)
     if score > 0:
         predictor.save()

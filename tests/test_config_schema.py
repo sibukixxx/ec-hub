@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from ec_hub.config import load_fee_rules, load_settings
+from ec_hub.config import get_frontend_dist_path, get_price_model_path, load_fee_rules, load_settings
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -176,6 +176,11 @@ class TestEnvironmentVariableOverride:
         s = load_settings(settings_yaml)
         assert s.deepl.api_key == "env-deepl-key"
 
+    def test_env_overrides_nested_scheduler_cron(self, settings_yaml: Path, monkeypatch):
+        monkeypatch.setenv("EC_HUB_SCHEDULER__RESEARCHER__CRON", "*/10 * * * *")
+        s = load_settings(settings_yaml)
+        assert s.scheduler.researcher.cron == "*/10 * * * *"
+
 
 # ---------------------------------------------------------------------------
 # Fee rules schema tests
@@ -326,6 +331,25 @@ class TestPathResolution:
         s = Settings.model_validate(data)
         s.resolve_paths(Path("/fake/project"))
         assert s.database.resolved_path == Path(":memory:")
+
+    def test_resolves_managed_model_and_frontend_paths(self):
+        from ec_hub.config_schema import Settings
+
+        s = Settings.model_validate(yaml.safe_load(MINIMAL_SETTINGS_YAML))
+        s.resolve_paths(Path("/fake/project"))
+        assert s.paths.resolved_price_model_path == Path("/fake/project/models/price_model.pkl")
+        assert s.paths.resolved_frontend_dist_path == Path("/fake/project/frontend/dist")
+
+    def test_helpers_use_configured_paths(self):
+        project_root = Path(__file__).resolve().parent.parent
+        settings = {
+            "paths": {
+                "price_model_path": "var/models/custom.pkl",
+                "frontend_dist_path": "var/frontend-build",
+            },
+        }
+        assert get_price_model_path(settings) == project_root / "var/models/custom.pkl"
+        assert get_frontend_dist_path(settings) == project_root / "var/frontend-build"
 
 
 # ---------------------------------------------------------------------------
