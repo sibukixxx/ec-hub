@@ -28,7 +28,7 @@
 - `frontend/src/pages/Dashboard.jsx`
 
 ## 残課題
-- `job_runs` / `integration_status` テーブルと API は追加されたが、`JobRunner` を通しているのは `ResearchUseCase` / `ListingUseCase` / `OrderUseCase.check_new_orders` までで、Scheduler 経由の `Messenger` / `ProfitTracker` 実行履歴は自動記録されない
-- `integration_status` を実運用で更新する書き込み経路がまだなく、`/api/system/health` と Dashboard の health 情報は DB に手動投入しない限り埋まらない
-- Dashboard の API レスポンスには `recent_jobs` と `health` が含まれるが、`frontend/src/pages/Dashboard.jsx` ではまだ表示していない
+- `job_runs` テーブルと API は追加され、手動実行の Research / Listing / Order Check は `JobRunner` を通るようになったが、Scheduler の定期実行は依然として `researcher` / `order_manager` / `messenger` / `profit_tracker` を直接呼んでおり、自動実行履歴が揃わない
+- `integration_status` の自動更新は現状 `exchange_rate` のみで、eBay / DeepL / Claude など他の外部連携の可用性はまだ継続監視されていない
+- 監視 UI は `frontend/src/pages/Operations.tsx` に recent jobs / health / scheduler 状態として入った一方、`frontend/src/pages/Dashboard.tsx` は為替フォールバック警告以外の運用監視情報をまだ出していない
 - LINE 通知の severity 分離と重複抑止 (dedupe) は未実装

@@ -37,6 +37,6 @@
 - `frontend/src/pages/Candidates.jsx`
 
 ## 残課題
-- `matcher.py` による正規化・採点と `match_score` / `match_reason` 保存は入ったが、Compare / Candidates 画面に一致根拠の表示がない
-- `ResearchConfig.match_threshold` の既定値は `0.6` だが、実際のスコアは `0-100` で評価しており、閾値の単位を揃える必要がある
-- レビュー・在庫・画像などの追加根拠はまだスコアへ入っておらず、タイトル / 型番 / 数量 / 価格 / カテゴリ中心の判定に留まっている
+- `match_score` / `match_reason` の保存、閾値の 0-100 正規化、Compare / Candidates での一致根拠表示までは入ったが、`extract_size_color()` で抽出しているサイズ・色を採点ロジックへまだ反映していない
+- レビュー件数、在庫状態、画像一致などの追加根拠は未導入で、スコアは依然としてタイトル / ブランド / 型番 / 数量 / 価格 / カテゴリ中心
+- `find_source_price()` は `ebay_title` が渡らない呼び出しでは後方互換のため最安採用へフォールバックするため、厳格に「スコア閾値を超えた候補のみ採用」に統一したい場合はこの分岐整理が残る

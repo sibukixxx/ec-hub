@@ -45,6 +45,7 @@
 - `frontend/src/api.js`
 
 ## 残課題
-- `frontend/src/api.js` は Dashboard / Candidates / Orders / ProfitCalc / Compare までで、リサーチ実行、出品実行、注文更新、メッセージ、エクスポート用の API ラッパーがない
-- Candidates は単票の承認 / 却下まで、Orders は閲覧のみで、リサーチ・出品・注文更新・一括操作の UI が未実装
-- メッセージセンター、設定管理、エクスポート導線などの管理画面ルート自体が未追加
+- `frontend/src/pages/Operations.tsx` / `Orders.tsx` / `Messages.tsx` により、リサーチ実行と進捗確認、出品実行と制限表示、注文更新、メッセージ一覧 / 手動返信、エクスポート導線までは実装済み
+- 出品は Operations 画面からの一括実行のみで、承認済み候補ごとの出品プレビューや選択的 publish UI はまだない
+- Candidates 画面の一括承認 / 一括却下 / 一括出品などのバルク操作は未実装
+- メッセージ画面にはカテゴリ表示と手動返信がある一方、`other` 判定やエスカレーション案件を明示的に絞り込む UI はまだない

@@ -29,7 +29,8 @@
 - `src/ec_hub/api.py`
 - `src/ec_hub/modules/*.py`
 
-## 残課題
-- [x] `POST /api/research/run` を `BackgroundTasks` で非同期化し、即座に `run_id` を返すように変更済み
-- [x] クライアントは `GET /api/research/runs/{run_id}` をポーリングし、`completed_at` の有無で完了判定可能
-- 将来的に本格的なジョブキュー（arq, Celery 等）が必要になった場合は別途検討
+## 完了確認
+- `src/ec_hub/api.py` に Research / Listing / Orders / Messages / Export の各エンドポイントが揃い、CLI 依存だった主要操作を REST API から実行できるようになった
+- `POST /api/research/run` は `BackgroundTasks` で非同期実行され、`GET /api/research/runs/{run_id}` のポーリングで進捗確認できる
+- `frontend/src/api.ts` に対応ラッパーが実装され、Operations / Orders / Messages 画面から実際に呼び出している
+- 将来的な本格ジョブキュー導入は別テーマとして切り出せる状態になった
