@@ -12,16 +12,16 @@
 - 予測結果が「ML 推定なのかルールベースなのか」を運用者が把握しづらい
 
 ## やるべきこと
-- [x] 学習データを `approved` / `listed` / `completed` など信頼できる状態に限定する
-- [x] モデルメタデータを保存する
+- [ ] 学習データを `approved` / `listed` / `completed` など信頼できる状態に限定する
+- [ ] モデルメタデータを保存する
   - version
   - trained_at
   - sample_count
   - score
   - feature schema
-- [x] 学習処理をリクエスト経路から外し、Scheduler または管理 API の明示操作に寄せる
-- [x] 推論レスポンスに `prediction_source` (`ml` / `rule_based`) を含める
-- [x] 低品質モデルを自動で無効化する閾値を設ける
+- [ ] 学習処理をリクエスト経路から外し、Scheduler または管理 API の明示操作に寄せる
+- [ ] 推論レスポンスに `prediction_source` (`ml` / `rule_based`) を含める
+- [ ] 低品質モデルを自動で無効化する閾値を設ける
 
 ## 優先度
 **中** — 機能はあるが、運用品質を上げるには設計見直しが必要
