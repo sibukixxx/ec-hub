@@ -30,5 +30,5 @@
 - `tests/`
 
 ## 残課題
-- バックエンド側の API / scraper / 各種サービスのテストはかなり増えたが、フロントエンド用のテストランナーとコンポーネントテスト基盤は未導入
-- E2E の操作シナリオは未整備で、画面から API まで通した回帰確認手段がない
+- バックエンド側は REST API、scraper 耐障害化、Amazon/Rakuten/Yahoo クライアント、Translator、Lister、OrderManager、eBay API、Notifier、Scheduler までテストが増えた一方、フロントエンド用のテストランナーとコンポーネントテスト基盤は未導入
+- 画面操作から API まで通した E2E シナリオは未整備で、管理画面の回帰確認を自動化できていない

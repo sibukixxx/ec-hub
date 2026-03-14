@@ -28,7 +28,6 @@
 - `src/ec_hub/services/*.py`
 
 ## 残課題
-- [x] `settings.yaml` に対する `settings.local.yaml` の重ね合わせと、`settings.yaml` < `settings.local.yaml` < 環境変数 の優先順位整理 → `config.py` の `_deep_merge` + `load_settings` で実装済み
-- [x] 外部連携ごとの「必須なら起動失敗」「任意なら degraded mode」の区分 → `Settings.validate_required_services()` + `AppContext.create(validate_services=True)` で実装済み
-- [x] DB パスのパス解決を設定層に集約 → `Settings.resolve_paths()` + `DatabaseConfig.resolved_path` で実装済み
-- 静的ファイルパス (`api.py:STATIC_DIR`) は現状ハードコードのまま（設定で変更する需要が低いため据え置き）
+- 環境変数オーバーライドは `EC_HUB_<SECTION>__<KEY>` の2階層までで、`scheduler.researcher.cron` のような深いネスト設定を直接上書きできない
+- 必須/任意サービスの判定と fail fast は `AppContext.create(validate_services=True)` を使う API 起動時では有効だが、CLI など他の入口では同じ起動時検証を強制していない
+- DB パスは設定層で解決するようになった一方、価格モデル保存先 (`models/price_model.pkl`) や静的ファイルパス (`api.py:STATIC_DIR`) はまだ設定層へ集約されていない
