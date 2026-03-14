@@ -4,10 +4,10 @@ import pytest
 
 from ec_hub.db import Database
 from ec_hub.modules.researcher import Researcher, simplify_search_query
-from ec_hub.scrapers.base import SourceProduct, SourceSearchResult, SourceSearcher
-
+from ec_hub.scrapers.base import SourceProduct, SourceSearcher, SourceSearchResult
 
 # --- テスト用モックSearcher ---
+
 
 class MockSourceSearcher(SourceSearcher):
     """テスト用の仕入れ検索モック."""
@@ -34,6 +34,7 @@ class MockSourceSearcher(SourceSearcher):
 
 
 # --- Fixtures ---
+
 
 @pytest.fixture
 def fee_rules():
@@ -89,6 +90,7 @@ def researcher(db, settings, fee_rules):
 
 # --- simplify_search_query テスト ---
 
+
 def test_simplify_search_query_basic():
     assert simplify_search_query("NEW RARE Pokemon Card Pikachu Japan") == "Pokemon Card Pikachu"
 
@@ -114,72 +116,102 @@ def test_simplify_search_query_removes_noise():
 
 # --- find_source_price テスト ---
 
+
 async def test_find_source_price_no_searchers(researcher):
-    result = await researcher.find_source_price("test", [])
+    result, match = await researcher.find_source_price("test", [])
     assert result is None
+    assert match is None
 
 
 async def test_find_source_price_returns_cheapest(researcher):
+    """ebay_title未指定時は最安商品を返す（後方互換）."""
     products = [
         SourceProduct(
-            item_code="A001", source_site="mock",
-            title="高い商品", price_jpy=5000, url="https://example.com/a001",
+            item_code="A001",
+            source_site="mock",
+            title="高い商品",
+            price_jpy=5000,
+            url="https://example.com/a001",
         ),
         SourceProduct(
-            item_code="A002", source_site="mock",
-            title="安い商品", price_jpy=2000, url="https://example.com/a002",
+            item_code="A002",
+            source_site="mock",
+            title="安い商品",
+            price_jpy=2000,
+            url="https://example.com/a002",
         ),
         SourceProduct(
-            item_code="A003", source_site="mock",
-            title="中間", price_jpy=3000, url="https://example.com/a003",
+            item_code="A003",
+            source_site="mock",
+            title="中間",
+            price_jpy=3000,
+            url="https://example.com/a003",
         ),
     ]
     searcher = MockSourceSearcher(products)
-    result = await researcher.find_source_price("test", [searcher])
+    result, match = await researcher.find_source_price("test", [searcher])
     assert result is not None
     assert result.item_code == "A002"
     assert result.price_jpy == 2000
+    assert match is None  # No match scoring without ebay_title
 
 
 async def test_find_source_price_excludes_unavailable(researcher):
     products = [
         SourceProduct(
-            item_code="A001", source_site="mock",
-            title="在庫なし", price_jpy=1000, url="https://example.com/a001",
+            item_code="A001",
+            source_site="mock",
+            title="在庫なし",
+            price_jpy=1000,
+            url="https://example.com/a001",
             availability=False,
         ),
         SourceProduct(
-            item_code="A002", source_site="mock",
-            title="在庫あり", price_jpy=3000, url="https://example.com/a002",
+            item_code="A002",
+            source_site="mock",
+            title="在庫あり",
+            price_jpy=3000,
+            url="https://example.com/a002",
             availability=True,
         ),
     ]
     searcher = MockSourceSearcher(products)
-    result = await researcher.find_source_price("test", [searcher])
+    result, _ = await researcher.find_source_price("test", [searcher])
     assert result is not None
     assert result.item_code == "A002"
 
 
 async def test_find_source_price_multiple_searchers(researcher):
-    searcher1 = MockSourceSearcher([
-        SourceProduct(
-            item_code="AMZ001", source_site="amazon",
-            title="Amazon商品", price_jpy=4000, url="https://amazon.co.jp/dp/AMZ001",
-        ),
-    ])
-    searcher2 = MockSourceSearcher([
-        SourceProduct(
-            item_code="RKT001", source_site="rakuten",
-            title="楽天商品", price_jpy=2500, url="https://rakuten.co.jp/rkt001",
-        ),
-    ])
-    result = await researcher.find_source_price("test", [searcher1, searcher2])
+    searcher1 = MockSourceSearcher(
+        [
+            SourceProduct(
+                item_code="AMZ001",
+                source_site="amazon",
+                title="Amazon商品",
+                price_jpy=4000,
+                url="https://amazon.co.jp/dp/AMZ001",
+            ),
+        ]
+    )
+    searcher2 = MockSourceSearcher(
+        [
+            SourceProduct(
+                item_code="RKT001",
+                source_site="rakuten",
+                title="楽天商品",
+                price_jpy=2500,
+                url="https://rakuten.co.jp/rkt001",
+            ),
+        ]
+    )
+    result, _ = await researcher.find_source_price("test", [searcher1, searcher2])
     assert result is not None
     assert result.item_code == "RKT001"
     assert result.price_jpy == 2500
 
 
 # --- evaluate_candidate テスト ---
+
 
 async def test_evaluate_candidate_profitable(researcher):
     """利益率30%以上で登録される."""
@@ -227,17 +259,23 @@ async def test_evaluate_candidate_high_shipping_ratio(researcher):
 
 # --- research_single テスト ---
 
+
 async def test_research_single_with_match(researcher):
     """仕入れ先が見つかり利益率OKの場合."""
-    searcher = MockSourceSearcher([
-        SourceProduct(
-            item_code="AMZ001", source_site="amazon",
-            title="仕入れ商品", price_jpy=2000, url="https://amazon.co.jp/dp/AMZ001",
-        ),
-    ])
+    searcher = MockSourceSearcher(
+        [
+            SourceProduct(
+                item_code="AMZ001",
+                source_site="amazon",
+                title="Bandai Gundam Figure Model Kit RG",
+                price_jpy=2000,
+                url="https://amazon.co.jp/dp/AMZ001",
+            ),
+        ]
+    )
     ebay_product = {
         "item_id": "123456",
-        "title": "Test Product For Sale",
+        "title": "Bandai Gundam Figure Model Kit RG 1/144",
         "price_usd": 80.0,
     }
     cid = await researcher.research_single(ebay_product, [searcher])
@@ -258,11 +296,99 @@ async def test_research_single_no_source(researcher):
 
 async def test_research_single_no_price(researcher):
     """eBay価格がない場合."""
-    searcher = MockSourceSearcher([
-        SourceProduct(
-            item_code="AMZ", source_site="amazon",
-            title="test", price_jpy=1000, url="https://test",
-        ),
-    ])
+    searcher = MockSourceSearcher(
+        [
+            SourceProduct(
+                item_code="AMZ",
+                source_site="amazon",
+                title="test",
+                price_jpy=1000,
+                url="https://test",
+            ),
+        ]
+    )
     cid = await researcher.research_single({"title": "Test", "price_usd": None}, [searcher])
     assert cid is None
+
+
+# --- match scoring integration tests ---
+
+
+async def test_find_source_price_with_match_scoring(researcher):
+    """ebay_title指定時はマッチスコアで選択する."""
+    products = [
+        SourceProduct(
+            item_code="A001",
+            source_site="mock",
+            title="Bandai Gundam RG RX-78-2 1/144",
+            price_jpy=2000,
+            url="https://example.com/a001",
+        ),
+        SourceProduct(
+            item_code="A002",
+            source_site="mock",
+            title="Kitchen Knife Set 3pcs",
+            price_jpy=1000,
+            url="https://example.com/a002",
+        ),
+    ]
+    searcher = MockSourceSearcher(products)
+    result, match = await researcher.find_source_price(
+        "Gundam",
+        [searcher],
+        ebay_title="Bandai Gundam RG RX-78-2 1/144 Model Kit",
+        ebay_price_usd=30.0,
+    )
+    # Should pick A001 (better match) even though A002 is cheaper
+    if result is not None:
+        assert result.item_code == "A001"
+        assert match is not None
+        assert match["score"] > 0
+
+
+async def test_find_source_price_rejects_low_match(researcher):
+    """マッチスコアが閾値未満の場合はNoneを返す."""
+    products = [
+        SourceProduct(
+            item_code="A001",
+            source_site="mock",
+            title="全く関係ない商品 調理器具セット",
+            price_jpy=1000,
+            url="https://example.com/a001",
+        ),
+    ]
+    searcher = MockSourceSearcher(products)
+    result, match = await researcher.find_source_price(
+        "Gundam",
+        [searcher],
+        ebay_title="Bandai Gundam RG RX-78-2 Model Kit",
+        ebay_price_usd=30.0,
+    )
+    assert result is None
+    assert match is None
+
+
+async def test_research_single_stores_match_data(researcher):
+    """research_singleがmatch_scoreとmatch_reasonをDBに保存する."""
+    searcher = MockSourceSearcher(
+        [
+            SourceProduct(
+                item_code="AMZ001",
+                source_site="amazon",
+                title="Bandai Figure Test Product For Sale",
+                price_jpy=2000,
+                url="https://amazon.co.jp/dp/AMZ001",
+            ),
+        ]
+    )
+    ebay_product = {
+        "item_id": "123456",
+        "title": "Bandai Figure Test Product For Sale",
+        "price_usd": 80.0,
+    }
+    cid = await researcher.research_single(ebay_product, [searcher])
+    if cid is not None:
+        candidates = await researcher._db.get_candidates()
+        assert len(candidates) == 1
+        assert candidates[0]["match_score"] is not None
+        assert candidates[0]["match_score"] > 0

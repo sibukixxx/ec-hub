@@ -18,6 +18,7 @@ import logging
 
 from ec_hub.config import load_fee_rules, load_settings
 from ec_hub.db import Database
+from ec_hub.modules.matcher import DEFAULT_MATCH_THRESHOLD, calc_match_score, is_good_match
 from ec_hub.modules.notifier import Notifier
 from ec_hub.modules.price_predictor import PricePredictor
 from ec_hub.modules.profit_tracker import ProfitTracker
@@ -120,13 +121,20 @@ class Researcher:
         searchers: list[SourceSearcher],
         *,
         max_results: int = 5,
-    ) -> SourceProduct | None:
-        """Amazon / 楽天を横断検索し、最安の仕入れ商品を見つける.
+        ebay_title: str | None = None,
+        ebay_price_usd: float | None = None,
+        ebay_category: str | None = None,
+    ) -> tuple[SourceProduct | None, dict | None]:
+        """Amazon / 楽天を横断検索し、最良の仕入れ商品を見つける.
 
-        各仕入れサイトを並行検索し、在庫があり最も安い商品を返す。
+        各仕入れサイトを並行検索し、マッチスコアが閾値を超えた最良候補を返す。
+        ebay_title が指定されない場合は従来通り最安商品を返す（後方互換）。
+
+        Returns:
+            (SourceProduct, match_result) or (None, None)
         """
         if not searchers:
-            return None
+            return None, None
 
         tasks = [searcher.search(query, max_results=max_results) for searcher in searchers]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -141,10 +149,44 @@ class Researcher:
                     all_products.append(product)
 
         if not all_products:
-            return None
+            return None, None
 
-        # 最安商品を返す
-        return min(all_products, key=lambda p: p.price_jpy)
+        # Match scoring when eBay title is available
+        if ebay_title:
+            fx_rate_val = self._settings.get("exchange_rate", {}).get("fallback_rate", 150.0)
+            threshold = self._research_config.get("match_threshold", DEFAULT_MATCH_THRESHOLD)
+            best_product = None
+            best_match = None
+            best_score = -1
+
+            for product in all_products:
+                match_result = calc_match_score(
+                    ebay_title,
+                    product.title,
+                    ebay_price_usd=ebay_price_usd,
+                    source_price_jpy=product.price_jpy,
+                    fx_rate=fx_rate_val,
+                    ebay_category=ebay_category,
+                    source_category=product.category,
+                )
+                if is_good_match(match_result, threshold) and match_result["score"] > best_score:
+                    best_score = match_result["score"]
+                    best_product = product
+                    best_match = match_result
+
+            if best_product:
+                logger.debug(
+                    "マッチ成功: %s → %s (score=%d)",
+                    ebay_title[:30], best_product.title[:30], best_score,
+                )
+                return best_product, best_match
+            else:
+                logger.debug("マッチ閾値未達: %s (最高スコア=%d)", ebay_title[:30], best_score)
+                return None, None
+
+        # Fallback: return cheapest (backward compatibility)
+        cheapest = min(all_products, key=lambda p: p.price_jpy)
+        return cheapest, None
 
     async def evaluate_candidate(
         self,
@@ -159,6 +201,12 @@ class Researcher:
         category: str | None = None,
         image_url: str | None = None,
         source_url: str | None = None,
+        match_score: int | None = None,
+        match_reason: str | None = None,
+        ebay_item_id: str | None = None,
+        ebay_title: str | None = None,
+        ebay_url: str | None = None,
+        research_run_id: int | None = None,
     ) -> int | None:
         """候補商品を評価し、基準を満たせばDBに登録する.
 
@@ -201,6 +249,12 @@ class Researcher:
             category=category,
             image_url=image_url,
             source_url=source_url,
+            match_score=match_score,
+            match_reason=match_reason,
+            ebay_item_id=ebay_item_id,
+            ebay_title=ebay_title,
+            ebay_url=ebay_url,
+            research_run_id=research_run_id,
         )
         # ML prediction for additional insight
         prediction_info = ""
@@ -223,6 +277,8 @@ class Researcher:
         self,
         ebay_product: dict,
         searchers: list[SourceSearcher],
+        *,
+        research_run_id: int | None = None,
     ) -> int | None:
         """単一のeBay商品に対してリサーチを実行する.
 
@@ -241,10 +297,20 @@ class Researcher:
         # タイトルから検索クエリを生成
         search_query = simplify_search_query(title)
 
-        source_product = await self.find_source_price(search_query, searchers)
+        source_product, match_result = await self.find_source_price(
+            search_query,
+            searchers,
+            ebay_title=title,
+            ebay_price_usd=price_usd,
+            ebay_category=ebay_product.get("category"),
+        )
         if not source_product:
             logger.debug("仕入れ先なし: %s", title[:40])
             return None
+
+        # Build match reason string
+        match_score_val = match_result["score"] if match_result else None
+        match_reason = " / ".join(match_result["reasons"]) if match_result and match_result["reasons"] else None
 
         return await self.evaluate_candidate(
             item_code=source_product.item_code,
@@ -256,6 +322,12 @@ class Researcher:
             category=source_product.category or ebay_product.get("category"),
             image_url=source_product.image_url,
             source_url=source_product.url,
+            match_score=match_score_val,
+            match_reason=match_reason,
+            ebay_item_id=ebay_product.get("item_id"),
+            ebay_title=title,
+            ebay_url=ebay_product.get("url"),
+            research_run_id=research_run_id,
         )
 
     async def run(self, queries: list[str] | None = None, *, pages: int = 1) -> int:
@@ -302,12 +374,22 @@ class Researcher:
                 ebay_results = await self.search_ebay_sold(query, pages=pages)
                 logger.info("'%s': eBay %d 件を仕入れ検索中...", query, len(ebay_results))
 
+                run_id = await self._db.create_research_run(
+                    query=query, ebay_hits=len(ebay_results),
+                )
+                query_registered = 0
+
                 for ebay_product in ebay_results:
                     if total_registered >= self.max_candidates_per_run:
                         break
-                    candidate_id = await self.research_single(ebay_product, searchers)
+                    candidate_id = await self.research_single(
+                        ebay_product, searchers, research_run_id=run_id,
+                    )
                     if candidate_id is not None:
                         total_registered += 1
+                        query_registered += 1
+
+                await self._db.update_research_run(run_id, candidates_found=query_registered)
         finally:
             for searcher in searchers:
                 await searcher.close()

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-from urllib.parse import quote_plus
 
 import httpx
 from bs4 import BeautifulSoup, Tag
