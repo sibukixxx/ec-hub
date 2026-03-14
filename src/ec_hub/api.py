@@ -297,11 +297,9 @@ async def compare_prices(
         if keyword_lower in title.lower():
             matched.append(c)
 
-    # ML prediction
+    # ML prediction (load only, no training in request path)
     predictor = PricePredictor(db)
     predictor.load()
-    if not predictor.is_trained:
-        await predictor.train(min_samples=5)
 
     return {
         "keyword": req.keyword,
@@ -309,6 +307,7 @@ async def compare_prices(
         "ebay_items": ebay_items,
         "source_candidates": matched[:10],
         "predictor_trained": predictor.is_trained,
+        "prediction_source": "ml" if predictor.is_trained else "rule_based",
     }
 
 
@@ -321,10 +320,9 @@ async def predict_price(
     settings: Annotated[dict, Depends(get_settings)],
     fee_rules: Annotated[dict, Depends(get_fee_rules)],
 ) -> dict:
+    # Load model only, no training in request path
     predictor = PricePredictor(db)
     predictor.load()
-    if not predictor.is_trained:
-        await predictor.train(min_samples=5)
 
     tracker = ProfitTracker(db, settings, fee_rules)
     fx_rate = await tracker.get_fx_rate()

@@ -3,7 +3,7 @@
 import pytest
 
 from ec_hub.db import Database
-from ec_hub.modules.price_predictor import PricePredictor
+from ec_hub.modules.price_predictor import ModelMetadata, PricePredictor
 
 
 @pytest.fixture
@@ -19,11 +19,11 @@ def predictor(db):
     return PricePredictor(db)
 
 
-async def _seed_candidates(db, count=20):
+async def _seed_candidates(db, count=20, status="pending", seed=42):
     """テスト用の候補データを投入する."""
     import random
 
-    random.seed(42)
+    random.seed(seed)
     for i in range(count):
         cost = random.randint(1000, 10000)
         # Simulate realistic pricing: price_usd ≈ cost * (1.5~3.0) / 150
@@ -31,7 +31,7 @@ async def _seed_candidates(db, count=20):
         price_usd = round(cost * markup / 150, 2)
         margin = random.uniform(0.2, 0.8)
         profit = int(price_usd * 150 * margin - cost)
-        await db.add_candidate(
+        cid = await db.add_candidate(
             item_code=f"ITEM{i:03d}",
             source_site=random.choice(["amazon", "rakuten", "yahoo_shopping"]),
             title_jp=f"テスト商品 {i}",
@@ -44,6 +44,8 @@ async def _seed_candidates(db, count=20):
             category=random.choice(["Electronics", "Toys & Hobbies", "Collectibles", None]),
             ebay_sold_count_30d=random.randint(0, 50),
         )
+        if status != "pending":
+            await db.update_candidate_status(cid, status)
 
 
 # --- 基本テスト ---
@@ -88,7 +90,7 @@ async def test_train_insufficient_data(predictor, db):
 
 async def test_train_with_sufficient_data(predictor, db):
     """十分なデータで学習が成功する."""
-    await _seed_candidates(db, count=30)
+    await _seed_candidates(db, count=30, status="approved")
     score = await predictor.train(min_samples=10)
     assert predictor.is_trained is True
     # Score can be negative for very noisy data, but should be computed
@@ -97,7 +99,7 @@ async def test_train_with_sufficient_data(predictor, db):
 
 async def test_predict_after_training(predictor, db):
     """学習後はMLモデルで予測する."""
-    await _seed_candidates(db, count=30)
+    await _seed_candidates(db, count=30, status="approved")
     await predictor.train(min_samples=10)
 
     result = predictor.predict(
@@ -115,7 +117,7 @@ async def test_predict_after_training(predictor, db):
 
 async def test_predict_higher_cost_higher_price(predictor, db):
     """仕入れ価格が高い商品は予測価格も高くなる."""
-    await _seed_candidates(db, count=30)
+    await _seed_candidates(db, count=30, status="approved")
     await predictor.train(min_samples=10)
 
     cheap = predictor.predict(cost_jpy=1000, fx_rate=150.0)
@@ -132,7 +134,7 @@ def test_confidence_untrained(predictor):
 
 async def test_confidence_with_sales(predictor, db):
     """販売実績が多い商品は信頼度が高い."""
-    await _seed_candidates(db, count=30)
+    await _seed_candidates(db, count=30, status="approved")
     await predictor.train(min_samples=10)
 
     no_sales = predictor.predict(cost_jpy=3000, ebay_sold_count_30d=0, fx_rate=150.0)
@@ -144,7 +146,7 @@ async def test_confidence_with_sales(predictor, db):
 
 async def test_save_and_load(predictor, db, tmp_path):
     """モデルの保存と読込."""
-    await _seed_candidates(db, count=30)
+    await _seed_candidates(db, count=30, status="approved")
     await predictor.train(min_samples=10)
 
     model_path = tmp_path / "test_model.pkl"
@@ -230,7 +232,7 @@ def test_prediction_profit_calculation(predictor):
 
 async def test_retrain_if_needed(predictor, db):
     """十分なデータで再学習が実行される."""
-    await _seed_candidates(db, count=30)
+    await _seed_candidates(db, count=30, status="approved")
     retrained = await predictor.retrain_if_needed(min_new_samples=20)
     assert retrained is True
     assert predictor.is_trained is True
@@ -240,3 +242,119 @@ async def test_retrain_if_needed_insufficient(predictor, db):
     """データ不足で再学習しない."""
     retrained = await predictor.retrain_if_needed(min_new_samples=100)
     assert retrained is False
+
+
+# --- Issue #016: 価格モデルライフサイクル ---
+
+
+# 1. prediction_source フィールド
+
+def test_prediction_source_rule_based_when_untrained(predictor):
+    """未学習時の prediction_source は 'rule_based'."""
+    result = predictor.predict(cost_jpy=3000, fx_rate=150.0)
+    assert result.prediction_source == "rule_based"
+
+
+async def test_prediction_source_ml_after_training(predictor, db):
+    """学習後の prediction_source は 'ml'."""
+    await _seed_candidates(db, count=30, status="approved")
+    await predictor.train(min_samples=10)
+
+    result = predictor.predict(cost_jpy=3000, fx_rate=150.0)
+    assert result.prediction_source == "ml"
+
+
+# 2. 学習データのフィルタリング（pending 除外）
+
+async def test_train_excludes_pending_candidates(predictor, db):
+    """pending 状態の候補は学習データから除外される."""
+    # pending のみ20件投入 → 学習データ不足
+    await _seed_candidates(db, count=20, status="pending")
+    score = await predictor.train(min_samples=10)
+    assert predictor.is_trained is False
+    assert score == 0.0
+
+
+async def test_train_uses_only_trusted_statuses(predictor, db):
+    """approved/listed/completed のみ学習に使用."""
+    # approved 15件 + pending 15件 → approved のみで学習
+    await _seed_candidates(db, count=15, status="approved", seed=42)
+    await _seed_candidates(db, count=15, status="pending", seed=99)
+    await predictor.train(min_samples=10)
+    assert predictor.is_trained is True
+    assert predictor.metadata is not None
+    assert predictor.metadata.sample_count == 15
+
+
+# 3. モデルメタデータ
+
+async def test_metadata_populated_after_training(predictor, db):
+    """学習後にメタデータが設定される."""
+    await _seed_candidates(db, count=30, status="approved")
+    await predictor.train(min_samples=10)
+
+    meta = predictor.metadata
+    assert meta is not None
+    assert meta.version >= 1
+    assert meta.trained_at is not None
+    assert meta.sample_count == 30
+    assert isinstance(meta.score, float)
+    assert meta.feature_names == [
+        "cost_jpy", "weight_g", "source_site", "category",
+        "ebay_sold_count_30d", "price_density",
+    ]
+
+
+async def test_metadata_persisted_on_save(predictor, db, tmp_path):
+    """メタデータが保存・読込で維持される."""
+    await _seed_candidates(db, count=30, status="approved")
+    await predictor.train(min_samples=10)
+
+    model_path = tmp_path / "meta_model.pkl"
+    predictor.save(model_path)
+
+    new_predictor = PricePredictor(db)
+    new_predictor.load(model_path)
+
+    assert new_predictor.metadata is not None
+    assert new_predictor.metadata.version == predictor.metadata.version
+    assert new_predictor.metadata.sample_count == predictor.metadata.sample_count
+    assert new_predictor.metadata.trained_at == predictor.metadata.trained_at
+
+
+async def test_metadata_version_increments(predictor, db):
+    """再学習でバージョンがインクリメントされる."""
+    await _seed_candidates(db, count=30, status="approved")
+    await predictor.train(min_samples=10)
+    v1 = predictor.metadata.version
+
+    await predictor.train(min_samples=10)
+    assert predictor.metadata.version == v1 + 1
+
+
+# 4. 低品質モデルの自動無効化
+
+async def test_low_quality_model_auto_disabled(db):
+    """低品質モデル（R² < 閾値）は自動で無効化される."""
+    predictor = PricePredictor(db, min_quality_score=0.99)
+    # 少量のノイジーなデータでは R² が低い → 無効化
+    await _seed_candidates(db, count=15, status="approved")
+    score = await predictor.train(min_samples=10)
+    # スコアが閾値未満なら is_trained は False
+    if score < 0.99:
+        assert predictor.is_trained is False
+
+
+# 5. ModelMetadata バリデーション
+
+def test_model_metadata_creation():
+    """ModelMetadata が正しく生成される."""
+    meta = ModelMetadata(
+        version=1,
+        trained_at="2026-03-14T00:00:00",
+        sample_count=100,
+        score=0.85,
+        feature_names=["cost_jpy", "weight_g"],
+    )
+    assert meta.version == 1
+    assert meta.sample_count == 100
