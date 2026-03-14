@@ -3,6 +3,7 @@
 import pytest
 
 from ec_hub.context import AppContext
+from ec_hub.db import Database
 from ec_hub.services.listing_service import ListingService
 
 
@@ -35,10 +36,13 @@ def test_fee_rules():
 
 @pytest.fixture
 async def ctx(test_settings, test_fee_rules):
-    ctx = await AppContext.create(
+    db = Database(':memory:')
+
+    await db.connect()
+
+    ctx = AppContext(db=db,
         settings=test_settings,
         fee_rules=test_fee_rules,
-        db_path=":memory:",
     )
     yield ctx
     await ctx.close()
