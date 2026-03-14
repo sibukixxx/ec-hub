@@ -137,7 +137,8 @@ def test_parse_condition_open_box():
     """
     soup = BeautifulSoup(html, "lxml")
     item = soup.select_one("li.s-item")
-    result = EbayScraper._parse_condition(item)
+    scraper = EbayScraper()
+    result = scraper._parse_condition(item)
     assert result == ListingCondition.OPEN_BOX
 
 
@@ -152,7 +153,8 @@ def test_parse_condition_refurbished():
     """
     soup = BeautifulSoup(html, "lxml")
     item = soup.select_one("li.s-item")
-    result = EbayScraper._parse_condition(item)
+    scraper = EbayScraper()
+    result = scraper._parse_condition(item)
     assert result == ListingCondition.REFURBISHED
 
 
@@ -167,7 +169,8 @@ def test_parse_condition_for_parts():
     """
     soup = BeautifulSoup(html, "lxml")
     item = soup.select_one("li.s-item")
-    result = EbayScraper._parse_condition(item)
+    scraper = EbayScraper()
+    result = scraper._parse_condition(item)
     assert result == ListingCondition.FOR_PARTS
 
 
@@ -182,7 +185,8 @@ def test_parse_condition_not_specified():
     """
     soup = BeautifulSoup(html, "lxml")
     item = soup.select_one("li.s-item")
-    result = EbayScraper._parse_condition(item)
+    scraper = EbayScraper()
+    result = scraper._parse_condition(item)
     assert result == ListingCondition.NOT_SPECIFIED
 
 
