@@ -27,8 +27,8 @@
 - `src/ec_hub/db/database.py`
 - `frontend/src/pages/Dashboard.jsx`
 
-## 残課題
-- `job_runs` / `integration_status` テーブルと API は追加されたが、`JobRunner` を通しているのは `ResearchUseCase` / `ListingUseCase` / `OrderUseCase.check_new_orders` までで、Scheduler 経由の `Messenger` / `ProfitTracker` 実行履歴は自動記録されない
-- `integration_status` を実運用で更新する書き込み経路がまだなく、`/api/system/health` と Dashboard の health 情報は DB に手動投入しない限り埋まらない
-- Dashboard の API レスポンスには `recent_jobs` と `health` が含まれるが、`frontend/src/pages/Dashboard.jsx` ではまだ表示していない
-- LINE 通知の severity 分離と重複抑止 (dedupe) は未実装
+## 完了済み残課題
+- [x] Scheduler の定期実行が JobRunner を経由して job_runs テーブルに記録されるようになった (`scheduler.py` の `_run_*` 関数を JobRunner でラップ)
+- [x] `integration_status` の自動更新: `health_checker.py` を追加し、eBay / DeepL / Claude / Amazon / 楽天 / LINE の6サービスの設定状態を30分ごとに自動チェック・更新。起動時にも初回チェックを実行
+- [x] `Dashboard.tsx` にサービス劣化アラート、ジョブ失敗アラート、直近ジョブ実行履歴テーブルを表示
+- [x] LINE 通知に severity レベル (INFO / WARNING / CRITICAL) と重複抑止 (dedupe) を実装。`min_severity` でフィルタリング、同一メッセージは1時間以内に再送しない

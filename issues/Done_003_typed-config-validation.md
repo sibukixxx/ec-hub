@@ -27,7 +27,8 @@
 - `src/ec_hub/modules/*.py`
 - `src/ec_hub/services/*.py`
 
-## 残課題
-- 環境変数オーバーライドは `EC_HUB_<SECTION>__<KEY>` の2階層までで、`scheduler.researcher.cron` のような深いネスト設定を直接上書きできない
-- 必須/任意サービスの判定と fail fast は `AppContext.create(validate_services=True)` を使う API 起動時では有効だが、CLI など他の入口では同じ起動時検証を強制していない
-- DB パスは設定層で解決するようになった一方、価格モデル保存先 (`models/price_model.pkl`) や静的ファイルパス (`api.py:STATIC_DIR`) はまだ設定層へ集約されていない
+## 完了確認
+- `src/ec_hub/config_schema.py` に Pydantic ベースの `Settings` / `FeeRules` と各連携サービスの型定義が入り、必須サービスと degraded 対象サービスの分類も実装済み
+- `src/ec_hub/config.py` で `settings.yaml < settings.local.yaml < 環境変数` の優先順位が統一され、`EC_HUB_<SECTION>__<KEY>[__<NESTED_KEY>...]` 形式の深いネスト上書きにも対応済み
+- `src/ec_hub/context.py` に fail fast / degraded 判定が集約され、`src/ec_hub/api.py` と `src/ec_hub/cli.py` の実運用入口では `validate_services=True` を使って起動時検証するようになった
+- DB パス、価格モデル保存先、フロントエンド配信ディレクトリは `database.path` / `paths.*` として設定層で解決される
