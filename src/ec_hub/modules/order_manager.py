@@ -136,8 +136,7 @@ class OrderManager:
         )
 
         # eBay Fulfillment API で追跡番号を登録
-        orders = await self._db.get_orders(status="shipped")
-        target = next((o for o in orders if o["id"] == order_id), None)
+        target = await self._db.get_order_by_id(order_id)
         if target:
             ebay_api = self._get_ebay_api()
             if ebay_api.is_configured:
@@ -166,8 +165,7 @@ class OrderManager:
 
         実際の仕入れ価格・送料から純利益を再計算してDBに記録する。
         """
-        orders = await self._db.get_orders()
-        target = next((o for o in orders if o["id"] == order_id), None)
+        target = await self._db.get_order_by_id(order_id)
         if not target:
             logger.error("注文が見つかりません: order_id=%d", order_id)
             return

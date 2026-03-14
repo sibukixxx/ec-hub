@@ -136,9 +136,8 @@ class Lister:
         3. 利益率30%確保の価格を計算
         4. eBay Inventory APIで在庫アイテム作成 → オファー作成 → 公開
         """
-        candidates = await self._db.get_candidates(status="approved")
-        target = next((c for c in candidates if c["id"] == candidate_id), None)
-        if not target:
+        target = await self._db.get_candidate_by_id(candidate_id)
+        if not target or target.get("status") != "approved":
             logger.warning("承認済み候補が見つかりません: id=%d", candidate_id)
             return False
 
