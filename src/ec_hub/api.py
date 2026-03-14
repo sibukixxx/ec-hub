@@ -275,11 +275,9 @@ async def compare_prices(
         if keyword_lower in title.lower():
             matched.append(c)
 
-    # ML prediction
+    # ML prediction (load only — training is done via /api/predict/train)
     predictor = PricePredictor(db)
     predictor.load()
-    if not predictor.is_trained:
-        await predictor.train(min_samples=5)
 
     return {
         "keyword": req.keyword,
@@ -299,10 +297,9 @@ async def predict_price(
     settings: Annotated[dict, Depends(get_settings)],
     fee_rules: Annotated[dict, Depends(get_fee_rules)],
 ) -> dict:
+    # Load only — training is done via /api/predict/train
     predictor = PricePredictor(db)
     predictor.load()
-    if not predictor.is_trained:
-        await predictor.train(min_samples=5)
 
     tracker = ProfitTracker(db, settings, fee_rules)
     fx_rate = await tracker.get_fx_rate()
@@ -323,10 +320,15 @@ async def train_model(
     db: Annotated[Database, Depends(get_db)],
 ) -> dict:
     predictor = PricePredictor(db)
+    predictor.load()  # Preserve version for increment
     score = await predictor.train(min_samples=5)
-    if score > 0:
+    if predictor.is_trained:
         predictor.save()
-    return {"score": round(score, 3), "trained": predictor.is_trained}
+    return {
+        "score": round(score, 3),
+        "trained": predictor.is_trained,
+        "metadata": predictor.metadata.model_dump() if predictor.is_trained else None,
+    }
 
 
 # --- 静的ファイル配信 (ビルド済みフロントエンド) ---
