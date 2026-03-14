@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from ec_hub.config import load_fee_rules, load_settings
 from ec_hub.db import Database
+from ec_hub.modules.price_predictor import PricePredictor
 from ec_hub.modules.profit_tracker import ProfitTracker
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,14 @@ async def get_fee_rules() -> dict:
 
 class CandidateStatusUpdate(BaseModel):
     status: str
+
+
+class PricePredictRequest(BaseModel):
+    cost_jpy: int
+    weight_g: int = 500
+    source_site: str = "amazon"
+    category: str | None = None
+    ebay_sold_count_30d: int = 0
 
 
 class ProfitCalcRequest(BaseModel):
@@ -217,6 +226,45 @@ async def calc_profit(
         "net_profit": breakdown.net_profit,
         "margin_rate": breakdown.margin_rate,
     }
+
+
+# --- 価格予測 ---
+
+@app.post("/api/predict/price")
+async def predict_price(
+    req: PricePredictRequest,
+    db: Annotated[Database, Depends(get_db)],
+    settings: Annotated[dict, Depends(get_settings)],
+    fee_rules: Annotated[dict, Depends(get_fee_rules)],
+) -> dict:
+    predictor = PricePredictor(db)
+    predictor.load()
+    if not predictor.is_trained:
+        await predictor.train(min_samples=5)
+
+    tracker = ProfitTracker(db, settings, fee_rules)
+    fx_rate = await tracker.get_fx_rate()
+
+    prediction = predictor.predict(
+        cost_jpy=req.cost_jpy,
+        weight_g=req.weight_g,
+        source_site=req.source_site,
+        category=req.category,
+        ebay_sold_count_30d=req.ebay_sold_count_30d,
+        fx_rate=fx_rate,
+    )
+    return prediction.model_dump()
+
+
+@app.post("/api/predict/train")
+async def train_model(
+    db: Annotated[Database, Depends(get_db)],
+) -> dict:
+    predictor = PricePredictor(db)
+    score = await predictor.train(min_samples=5)
+    if score > 0:
+        predictor.save()
+    return {"score": round(score, 3), "trained": predictor.is_trained}
 
 
 # --- 静的ファイル配信 (ビルド済みフロントエンド) ---

@@ -19,6 +19,7 @@ import logging
 from ec_hub.config import load_fee_rules, load_settings
 from ec_hub.db import Database
 from ec_hub.modules.notifier import Notifier
+from ec_hub.modules.price_predictor import PricePredictor
 from ec_hub.modules.profit_tracker import ProfitTracker
 from ec_hub.scrapers.amazon import AmazonClient
 from ec_hub.scrapers.base import SourceProduct, SourceSearcher
@@ -44,6 +45,7 @@ class Researcher:
         self._research_config = self._settings.get("research", {})
         self._profit_tracker = ProfitTracker(db, self._settings, self._fee_rules)
         self._notifier = Notifier(self._settings)
+        self._price_predictor = PricePredictor(db)
 
     @property
     def min_margin_rate(self) -> float:
@@ -194,11 +196,20 @@ class Researcher:
             image_url=image_url,
             source_url=source_url,
         )
+        # ML prediction for additional insight
+        prediction_info = ""
+        if self._price_predictor.is_trained:
+            pred = self._price_predictor.predict(
+                cost_jpy=cost_jpy, weight_g=weight_g,
+                source_site=source_site, category=category, fx_rate=fx_rate,
+            )
+            prediction_info = f" | ML予測: ${pred.predicted_price_usd:.0f} (信頼度{pred.confidence:.0%})"
+
         logger.info(
-            "候補登録: %s | 仕入¥%d → eBay$%.0f | 利益 ¥%d (%.0f%%) [%s]",
+            "候補登録: %s | 仕入¥%d → eBay$%.0f | 利益 ¥%d (%.0f%%) [%s]%s",
             title_jp[:30], cost_jpy, ebay_price_usd,
             breakdown.net_profit, breakdown.margin_rate * 100,
-            source_site,
+            source_site, prediction_info,
         )
         return candidate_id
 
@@ -259,6 +270,10 @@ class Researcher:
         """
         if not queries:
             queries = ["japanese vintage", "anime figure", "japan exclusive"]
+
+        # Load or train price prediction model
+        if not self._price_predictor.load():
+            await self._price_predictor.train(min_samples=5)
 
         searchers = self._create_source_searchers()
         if not searchers:
