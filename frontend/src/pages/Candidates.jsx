@@ -51,6 +51,8 @@ export function Candidates() {
                 <th>eBay Price</th>
                 <th>Profit</th>
                 <th>Margin</th>
+                <th>Match</th>
+                <th>Reason</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
@@ -80,6 +82,12 @@ export function Candidates() {
                   <td>
                     {c.margin_rate != null ? `${(c.margin_rate * 100).toFixed(0)}%` : '-'}
                   </td>
+                  <td style={`font-weight:700;color:${(c.match_score ?? 0) >= 60 ? 'var(--green)' : (c.match_score ?? 0) >= 40 ? 'var(--yellow)' : 'var(--text-dim)'}`}>
+                    {c.match_score != null ? `${c.match_score}/100` : '-'}
+                  </td>
+                  <td title={c.match_reason || ''} style="max-width:280px;color:var(--text-dim);font-size:0.85rem">
+                    {c.match_reason ? `${c.match_reason.slice(0, 72)}${c.match_reason.length > 72 ? '...' : ''}` : '-'}
+                  </td>
                   <td><span class={`badge ${c.status}`}>{c.status}</span></td>
                   <td>
                     {c.status === 'pending' && (
@@ -96,7 +104,7 @@ export function Candidates() {
                 </tr>
               ))}
               {candidates.length === 0 && (
-                <tr><td colspan="10" style="text-align:center;color:var(--text-muted)">No candidates found</td></tr>
+                <tr><td colspan="12" style="text-align:center;color:var(--text-muted)">No candidates found</td></tr>
               )}
             </tbody>
           </table>

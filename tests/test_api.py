@@ -1,6 +1,6 @@
 """REST API のテスト."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -175,6 +175,49 @@ async def test_calc_profit(client):
     assert "margin_rate" in data
     assert data["fx_rate"] > 0
     assert data["jpy_revenue"] > 0
+
+
+@patch("ec_hub.api.EbayScraper")
+async def test_compare_includes_match_context(mock_scraper_cls, client, ctx):
+    cid = await ctx.db.add_candidate(
+        item_code="CMP-001",
+        source_site="amazon",
+        title_jp="Bandai Gundam Figure",
+        title_en=None,
+        cost_jpy=3000,
+        ebay_price_usd=80.0,
+        net_profit_jpy=5000,
+        margin_rate=1.67,
+        match_score=72,
+        match_reason="ブランド一致: bandai / タイトル類似度 80%",
+    )
+    await ctx.db.update_candidate_status(cid, "approved")
+
+    product = MagicMock()
+    product.item_id = "EBAY-CMP-1"
+    product.title = "Bandai Gundam Figure Model"
+    product.price = 80.0
+    product.url = "https://example.com/ebay"
+    product.image_url = None
+    product.category = "Figures"
+    product.condition = None
+    product.shipping = None
+
+    search_result = MagicMock()
+    search_result.products = [product]
+
+    scraper = AsyncMock()
+    scraper.search = AsyncMock(return_value=search_result)
+    scraper.__aenter__.return_value = scraper
+    scraper.__aexit__.return_value = False
+    mock_scraper_cls.return_value = scraper
+
+    resp = await client.post("/api/compare", json={"keyword": "Bandai", "max_results": 1})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["source_candidates"]) == 1
+    assert data["source_candidates"][0]["compare_match_score"] is not None
+    assert "compare_match_reason" in data["source_candidates"][0]
 
 
 async def test_dashboard_with_data(client, ctx):

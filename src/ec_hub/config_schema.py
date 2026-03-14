@@ -132,13 +132,22 @@ class ResearchConfig(_ConfigModel):
     min_sold_count_30d: int = 1
     exclude_categories: list[str] = Field(default_factory=list)
     max_candidates_per_run: int = 50
-    match_threshold: float = 0.6
+    match_threshold: float = 40.0
 
     @field_validator("min_margin_rate", "max_shipping_ratio")
     @classmethod
     def rate_must_be_non_negative(cls, v: float) -> float:
         if v < 0:
             raise ValueError("rate must be >= 0")
+        return v
+
+    @field_validator("match_threshold")
+    @classmethod
+    def normalize_match_threshold_value(cls, v: float) -> float:
+        if 0 < v <= 1:
+            v *= 100
+        if v < 0 or v > 100:
+            raise ValueError("match_threshold must be between 0 and 100")
         return v
 
 

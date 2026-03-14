@@ -8,6 +8,7 @@ from ec_hub.modules.matcher import (
     extract_quantity,
     extract_size_color,
     is_good_match,
+    normalize_match_threshold,
     normalize_title,
 )
 
@@ -318,3 +319,13 @@ def test_is_good_match_default_threshold():
     low = {"score": 20, "reasons": [], "details": {}}
     assert is_good_match(high) is True
     assert is_good_match(low) is False
+
+
+def test_normalize_match_threshold_ratio_to_score():
+    assert normalize_match_threshold(0.6) == 60
+
+
+def test_is_good_match_accepts_ratio_threshold():
+    result = {"score": 55, "reasons": [], "details": {}}
+    assert is_good_match(result, threshold=0.5) is True
+    assert is_good_match(result, threshold=0.6) is False

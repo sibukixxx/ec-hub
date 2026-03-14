@@ -129,6 +129,7 @@ class TestLoadSettingsReturnsTypedModel:
         # These sections are not in the minimal YAML, should use defaults
         assert s.research.min_margin_rate == 0.30
         assert s.research.max_candidates_per_run == 50
+        assert s.research.match_threshold == 40.0
         assert s.listing.max_daily_listings == 10
         assert s.exchange_rate.fallback_rate == 150.0
 
@@ -157,6 +158,15 @@ class TestLoadSettingsValidation:
 
         with pytest.raises(Exception):
             load_settings(p)
+
+    def test_ratio_match_threshold_is_normalized(self, tmp_path: Path):
+        data = yaml.safe_load(MINIMAL_SETTINGS_YAML)
+        data["research"] = {"match_threshold": 0.6}
+        p = tmp_path / "threshold.yaml"
+        p.write_text(yaml.dump(data), encoding="utf-8")
+
+        result = load_settings(p)
+        assert result.research.match_threshold == 60.0
 
     def test_missing_file_raises(self, tmp_path: Path):
         with pytest.raises(FileNotFoundError):

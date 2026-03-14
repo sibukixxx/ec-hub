@@ -68,6 +68,7 @@ research:
   min_margin_rate: 0.30      # 最低利益率 30%
   max_shipping_ratio: 0.50   # 送料が売価の50%超で除外
   min_sold_count_30d: 1      # 過去30日の最低販売実績
+  match_threshold: 40        # マッチ採用閾値 (0-100)。旧形式 0.6 も 60 として解釈
   exclude_categories:        # 除外カテゴリ
     - "Food & Beverages"
     - "Health & Beauty"

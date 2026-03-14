@@ -18,7 +18,12 @@ import logging
 
 from ec_hub.config import load_fee_rules, load_settings
 from ec_hub.db import Database
-from ec_hub.modules.matcher import DEFAULT_MATCH_THRESHOLD, calc_match_score, is_good_match
+from ec_hub.modules.matcher import (
+    DEFAULT_MATCH_THRESHOLD,
+    calc_match_score,
+    is_good_match,
+    normalize_match_threshold,
+)
 from ec_hub.modules.notifier import Notifier
 from ec_hub.modules.price_predictor import PricePredictor
 from ec_hub.modules.profit_tracker import ProfitTracker
@@ -60,6 +65,12 @@ class Researcher:
     @property
     def max_candidates_per_run(self) -> int:
         return self._research_config.get("max_candidates_per_run", 50)
+
+    @property
+    def match_threshold(self) -> int:
+        return normalize_match_threshold(
+            self._research_config.get("match_threshold", DEFAULT_MATCH_THRESHOLD)
+        )
 
     def _create_source_searchers(self) -> list[SourceSearcher]:
         """設定に基づいて仕入れ検索クライアントを生成する."""
@@ -154,7 +165,7 @@ class Researcher:
         # Match scoring when eBay title is available
         if ebay_title:
             fx_rate_val = self._settings.get("exchange_rate", {}).get("fallback_rate", 150.0)
-            threshold = self._research_config.get("match_threshold", DEFAULT_MATCH_THRESHOLD)
+            threshold = self.match_threshold
             best_product = None
             best_match = None
             best_score = -1

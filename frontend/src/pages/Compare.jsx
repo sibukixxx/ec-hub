@@ -135,6 +135,8 @@ export function Compare() {
                     <th style="text-align:right">eBay Price</th>
                     <th style="text-align:right">Profit</th>
                     <th style="text-align:right">Margin</th>
+                    <th style="text-align:right">Match</th>
+                    <th>Why</th>
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -142,6 +144,8 @@ export function Compare() {
                   {result.source_candidates.map((c) => {
                     const margin = c.margin_rate ?? 0;
                     const marginColor = margin >= 0.3 ? 'var(--green)' : margin >= 0.15 ? 'var(--yellow)' : 'var(--red)';
+                    const matchScore = c.compare_match_score ?? c.match_score;
+                    const matchReason = c.compare_match_reason || c.match_reason;
                     return (
                       <tr key={c.id}>
                         <td>{c.title_jp?.substring(0, 40)}{c.title_jp?.length > 40 ? '...' : ''}</td>
@@ -153,6 +157,12 @@ export function Compare() {
                         </td>
                         <td style={`text-align:right;font-weight:600;color:${marginColor}`}>
                           {(margin * 100).toFixed(1)}%
+                        </td>
+                        <td style={`text-align:right;font-weight:700;color:${matchScore >= 60 ? 'var(--green)' : matchScore >= 40 ? 'var(--yellow)' : 'var(--red)'}`}>
+                          {matchScore != null ? `${matchScore}/100` : '-'}
+                        </td>
+                        <td title={matchReason || ''} style="max-width:260px;color:var(--text-dim);font-size:0.85rem">
+                          {matchReason ? `${matchReason.substring(0, 70)}${matchReason.length > 70 ? '...' : ''}` : '-'}
                         </td>
                         <td><span class={`badge badge-${c.status === 'approved' ? 'success' : c.status === 'rejected' ? 'danger' : 'info'}`}>{c.status}</span></td>
                       </tr>

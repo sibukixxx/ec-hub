@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from ec_hub.config import get_frontend_dist_path
 from ec_hub.context import AppContext
 from ec_hub.exceptions import InvalidStatusError, NotFoundError
+from ec_hub.modules.matcher import calc_match_score
 from ec_hub.modules.price_predictor import PricePredictor
 from ec_hub.modules.profit_tracker import ProfitTracker
 from ec_hub.scheduler import Scheduler
@@ -228,6 +229,7 @@ async def compare_prices(
                 "price_jpy": int((p.price or 0) * fx_rate),
                 "url": p.url,
                 "image_url": p.image_url,
+                "category": p.category,
                 "condition": p.condition.value if p.condition else None,
                 "shipping": {
                     "cost": p.shipping.cost if p.shipping else None,
@@ -239,10 +241,35 @@ async def compare_prices(
     candidates = await ctx.candidates.list(limit=200)
     keyword_lower = req.keyword.lower()
     matched = []
+    compare_anchor = ebay_items[0] if ebay_items else None
     for c in candidates:
         title = (c.get("title_jp") or "") + " " + (c.get("title_en") or "")
         if keyword_lower in title.lower():
-            matched.append(c)
+            enriched = dict(c)
+            if compare_anchor:
+                compare_match = calc_match_score(
+                    compare_anchor["title"],
+                    title,
+                    ebay_price_usd=compare_anchor.get("price_usd"),
+                    source_price_jpy=c.get("cost_jpy"),
+                    fx_rate=fx_rate,
+                    ebay_category=compare_anchor.get("category"),
+                    source_category=c.get("category"),
+                )
+                enriched["compare_match_score"] = compare_match["score"]
+                enriched["compare_match_reason"] = " / ".join(compare_match["reasons"])
+            matched.append(enriched)
+
+    matched.sort(
+        key=lambda c: (
+            c.get("compare_match_score")
+            if c.get("compare_match_score") is not None
+            else c.get("match_score", -1),
+            c.get("match_score", -1),
+            c.get("margin_rate", 0),
+        ),
+        reverse=True,
+    )
 
     # ML prediction
     predictor = PricePredictor(ctx.db, ctx.settings)
