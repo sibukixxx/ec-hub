@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import datetime
@@ -111,6 +112,27 @@ CREATE TABLE IF NOT EXISTS daily_reports (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS job_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'running',
+    params_json TEXT,
+    items_processed INTEGER DEFAULT 0,
+    warnings INTEGER DEFAULT 0,
+    errors INTEGER DEFAULT 0,
+    error_message TEXT,
+    started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME
+);
+
+CREATE TABLE IF NOT EXISTS integration_status (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    service_name TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'unknown',
+    error_message TEXT,
+    last_checked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_dedup
     ON candidates(source_site, item_code, ebay_item_id)
     WHERE ebay_item_id IS NOT NULL;
@@ -123,6 +145,8 @@ CREATE INDEX IF NOT EXISTS idx_orders_ordered_at ON orders(ordered_at);
 CREATE INDEX IF NOT EXISTS idx_orders_listing ON orders(listing_id);
 CREATE INDEX IF NOT EXISTS idx_messages_buyer ON messages(buyer_username);
 CREATE INDEX IF NOT EXISTS idx_messages_listing ON messages(listing_id);
+CREATE INDEX IF NOT EXISTS idx_job_runs_job_name ON job_runs(job_name);
+CREATE INDEX IF NOT EXISTS idx_job_runs_started_at ON job_runs(started_at);
 """
 
 
@@ -586,3 +610,93 @@ class Database:
             ),
         )
         await self.db.commit()
+
+    # --- Job Runs ---
+
+    async def create_job_run(
+        self,
+        job_name: str,
+        *,
+        params: dict | None = None,
+    ) -> int:
+        params_json = json.dumps(params, ensure_ascii=False) if params else None
+        cursor = await self.db.execute(
+            "INSERT INTO job_runs (job_name, params_json) VALUES (?, ?)",
+            (job_name, params_json),
+        )
+        await self.db.commit()
+        return cursor.lastrowid  # type: ignore[return-value]
+
+    async def complete_job_run(
+        self,
+        run_id: int,
+        items_processed: int = 0,
+        warnings: int = 0,
+        errors: int = 0,
+    ) -> None:
+        await self.db.execute(
+            """UPDATE job_runs
+            SET status = 'completed', items_processed = ?, warnings = ?, errors = ?,
+                completed_at = CURRENT_TIMESTAMP
+            WHERE id = ?""",
+            (items_processed, warnings, errors, run_id),
+        )
+        await self.db.commit()
+
+    async def fail_job_run(self, run_id: int, error_message: str) -> None:
+        await self.db.execute(
+            """UPDATE job_runs
+            SET status = 'failed', error_message = ?, completed_at = CURRENT_TIMESTAMP
+            WHERE id = ?""",
+            (error_message, run_id),
+        )
+        await self.db.commit()
+
+    async def get_job_run(self, run_id: int) -> dict | None:
+        cursor = await self.db.execute(
+            "SELECT * FROM job_runs WHERE id = ?", (run_id,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def get_job_runs(
+        self, job_name: str | None = None, limit: int = 20
+    ) -> list[dict]:
+        if job_name:
+            cursor = await self.db.execute(
+                "SELECT * FROM job_runs WHERE job_name = ? ORDER BY id DESC LIMIT ?",
+                (job_name, limit),
+            )
+        else:
+            cursor = await self.db.execute(
+                "SELECT * FROM job_runs ORDER BY id DESC LIMIT ?", (limit,)
+            )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    # --- Integration Status ---
+
+    async def upsert_integration_status(
+        self,
+        service_name: str,
+        status: str,
+        *,
+        error_message: str | None = None,
+    ) -> None:
+        await self.db.execute(
+            """INSERT INTO integration_status (service_name, status, error_message, last_checked_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(service_name) DO UPDATE SET
+                status = excluded.status,
+                error_message = excluded.error_message,
+                last_checked_at = CURRENT_TIMESTAMP""",
+            (service_name, status, error_message),
+        )
+        await self.db.commit()
+
+    async def get_all_integration_status(self) -> list[dict]:
+        cursor = await self.db.execute(
+            "SELECT * FROM integration_status ORDER BY service_name"
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]

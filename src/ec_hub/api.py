@@ -416,6 +416,28 @@ async def reply_message(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
+# --- ジョブ実行履歴 ---
+
+
+@app.get("/api/job-runs")
+async def list_job_runs(
+    ctx: Annotated[AppContext, Depends(get_ctx)],
+    job_name: str | None = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+) -> list[dict]:
+    return await ctx.db.get_job_runs(job_name=job_name, limit=limit)
+
+
+# --- システムヘルス ---
+
+
+@app.get("/api/system/health")
+async def system_health(
+    ctx: Annotated[AppContext, Depends(get_ctx)],
+) -> list[dict]:
+    return await ctx.db.get_all_integration_status()
+
+
 # --- エクスポート ---
 
 

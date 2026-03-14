@@ -435,3 +435,68 @@ async def test_export_invalid_format(client):
     """GET /api/export/candidates?format=xml returns 400."""
     resp = await client.get("/api/export/candidates?format=xml")
     assert resp.status_code == 400
+
+
+# --- ジョブ実行履歴 API ---
+
+
+async def test_job_runs_empty(client):
+    resp = await client.get("/api/job-runs")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+async def test_job_runs_list(client, ctx):
+    await ctx.db.create_job_run("research", params={"keywords": ["test"]})
+    run_id = await ctx.db.create_job_run("listing")
+    await ctx.db.complete_job_run(run_id, items_processed=3)
+
+    resp = await client.get("/api/job-runs")
+    assert resp.status_code == 200
+    runs = resp.json()
+    assert len(runs) == 2
+
+
+async def test_job_runs_filter_by_name(client, ctx):
+    await ctx.db.create_job_run("research")
+    await ctx.db.create_job_run("listing")
+    await ctx.db.create_job_run("research")
+
+    resp = await client.get("/api/job-runs?job_name=research")
+    runs = resp.json()
+    assert len(runs) == 2
+
+
+# --- システムヘルス API ---
+
+
+async def test_system_health_empty(client):
+    resp = await client.get("/api/system/health")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+async def test_system_health_with_data(client, ctx):
+    await ctx.db.upsert_integration_status("ebay_api", "ok")
+    await ctx.db.upsert_integration_status("deepl", "degraded", error_message="Rate limited")
+
+    resp = await client.get("/api/system/health")
+    assert resp.status_code == 200
+    statuses = resp.json()
+    assert len(statuses) == 2
+
+
+# --- Dashboard にジョブ履歴・ヘルス追加 ---
+
+
+async def test_dashboard_includes_job_runs_and_health(client, ctx):
+    run_id = await ctx.db.create_job_run("research")
+    await ctx.db.complete_job_run(run_id, items_processed=10)
+    await ctx.db.upsert_integration_status("ebay_api", "ok")
+
+    resp = await client.get("/api/dashboard")
+    data = resp.json()
+    assert "recent_jobs" in data
+    assert len(data["recent_jobs"]) == 1
+    assert "health" in data
+    assert len(data["health"]) == 1

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ec_hub.modules.job_runner import JobRunner
 from ec_hub.modules.lister import Lister
 
 if TYPE_CHECKING:
@@ -18,10 +19,15 @@ class ListingUseCase:
 
     async def run(self) -> int:
         lister = Lister(self._ctx.db, self._ctx.settings, self._ctx.fee_rules)
-        try:
-            return await lister.run()
-        finally:
-            await lister.close()
+
+        async def _execute() -> int:
+            try:
+                return await lister.run()
+            finally:
+                await lister.close()
+
+        runner = JobRunner(self._ctx.db)
+        return await runner.run("listing", _execute)
 
     async def check_selling_limit(self) -> dict:
         lister = Lister(self._ctx.db, self._ctx.settings, self._ctx.fee_rules)
