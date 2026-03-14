@@ -142,7 +142,21 @@ async def get_candidate(
     result = await svc.get_candidate(candidate_id)
     if not result:
         raise HTTPException(status_code=404, detail="Candidate not found")
+    # Attach research run info if available
+    if result.get("research_run_id"):
+        runs = await ctx.db.get_research_runs(limit=1000)
+        run = next((r for r in runs if r["id"] == result["research_run_id"]), None)
+        if run:
+            result["research_run"] = run
     return result
+
+
+@app.get("/api/research-runs")
+async def list_research_runs(
+    ctx: Annotated[AppContext, Depends(get_ctx)],
+    limit: int = Query(20, ge=1, le=100),
+) -> list[dict]:
+    return await ctx.db.get_research_runs(limit=limit)
 
 
 @app.patch("/api/candidates/{candidate_id}/status")
