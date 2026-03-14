@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import type { RoutableProps } from 'preact-router';
-import { Badge } from '../components/Badge';
 import { api } from '../api';
+import { Badge } from '../components/Badge';
 import { formatJpy, formatTimestamp } from '../lib/format';
 import { queryKeys } from '../lib/query-keys';
 import type { DashboardData, JobRun, ServiceHealth } from '../types';
@@ -27,9 +27,7 @@ export function Dashboard(_props: RoutableProps) {
   const degradedServices = health.filter(
     (s: ServiceHealth) => s.status !== 'ok' && s.status !== 'unknown'
   );
-  const failedJobs = recent_jobs.filter(
-    (j: JobRun) => j.status === 'failed'
-  );
+  const failedJobs = recent_jobs.filter((j: JobRun) => j.status === 'failed');
 
   return (
     <div>

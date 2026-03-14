@@ -92,6 +92,7 @@ async def _seed_candidates_with_status(db, status_counts):
 
 # --- 基本テスト ---
 
+
 def test_initial_state(predictor):
     assert predictor.is_trained is False
 
@@ -115,15 +116,20 @@ def test_predict_untrained_various_costs(predictor):
 
 # --- 学習テスト ---
 
+
 async def test_train_insufficient_data(predictor, db):
     """データ不足で学習しない."""
     # Only 3 candidates (below min_samples=10)
     for i in range(3):
         candidate_id = await db.add_candidate(
-            item_code=f"ITEM{i}", source_site="amazon",
-            title_jp="test", title_en=None,
-            cost_jpy=3000, ebay_price_usd=50.0,
-            net_profit_jpy=3000, margin_rate=0.5,
+            item_code=f"ITEM{i}",
+            source_site="amazon",
+            title_jp="test",
+            title_en=None,
+            cost_jpy=3000,
+            ebay_price_usd=50.0,
+            net_profit_jpy=3000,
+            margin_rate=0.5,
         )
         await db.update_candidate_status(candidate_id, "approved")
     score = await predictor.train(min_samples=10)
@@ -170,6 +176,7 @@ async def test_predict_higher_cost_higher_price(predictor, db):
 
 # --- 信頼度テスト ---
 
+
 def test_confidence_untrained(predictor):
     result = predictor.predict(cost_jpy=3000, fx_rate=150.0)
     assert result.confidence == 0.3
@@ -186,6 +193,7 @@ async def test_confidence_with_sales(predictor, db):
 
 
 # --- 保存・読込テスト ---
+
 
 async def test_save_and_load(predictor, db, tmp_path):
     """モデルの保存と読込."""
@@ -212,11 +220,14 @@ async def test_save_and_load(predictor, db, tmp_path):
 def test_save_uses_configured_default_path(tmp_path):
     """設定済みの既定パスにモデルを保存する."""
     model_path = tmp_path / "configured-model.pkl"
-    configured_predictor = PricePredictor(Database(":memory:"), settings={
-        "paths": {
-            "price_model_path": str(model_path),
+    configured_predictor = PricePredictor(
+        Database(":memory:"),
+        settings={
+            "paths": {
+                "price_model_path": str(model_path),
+            },
         },
-    })
+    )
     configured_predictor.save()
     assert model_path.exists()
 
@@ -227,6 +238,7 @@ def test_load_nonexistent(predictor):
 
 
 # --- エンコーダテスト ---
+
 
 def test_encode_known_source(predictor):
     encoded = predictor._encode_source("amazon")
@@ -261,6 +273,7 @@ def test_encode_unknown_category(predictor):
 
 # --- PricePrediction モデルテスト ---
 
+
 def test_prediction_fields(predictor):
     result = predictor.predict(cost_jpy=3000, fx_rate=150.0)
     assert hasattr(result, "predicted_price_usd")
@@ -285,6 +298,7 @@ def test_prediction_profit_calculation(predictor):
 
 # --- retrain テスト ---
 
+
 async def test_retrain_if_needed(predictor, db):
     """十分なデータで再学習が実行される."""
     await _seed_candidates(db, count=30)
@@ -300,6 +314,7 @@ async def test_retrain_if_needed_insufficient(predictor, db):
 
 
 # --- Issue #016: prediction_source フィールド ---
+
 
 def test_prediction_source_rule_based_when_untrained(predictor):
     """未学習時はprediction_sourceが'rule_based'."""
@@ -317,6 +332,7 @@ async def test_prediction_source_ml_when_trained(predictor, db):
 
 # --- Issue #016: 学習データフィルタリング ---
 
+
 async def test_train_excludes_pending_status(predictor, db):
     """pending ステータスの候補は学習データから除外される."""
     # 30件 pending + 5件 approved → approved のみ5件 → min_samples=10 で学習不可
@@ -327,16 +343,20 @@ async def test_train_excludes_pending_status(predictor, db):
 
 async def test_train_includes_trusted_statuses(predictor, db):
     """approved/listed/completed は学習データに含まれる."""
-    await _seed_candidates_with_status(db, [
-        ("approved", 10),
-        ("listed", 10),
-        ("completed", 10),
-    ])
+    await _seed_candidates_with_status(
+        db,
+        [
+            ("approved", 10),
+            ("listed", 10),
+            ("completed", 10),
+        ],
+    )
     await predictor.train(min_samples=10)
     assert predictor.is_trained is True
 
 
 # --- Issue #016: モデルメタデータ ---
+
 
 async def test_model_metadata_after_training(predictor, db):
     """学習後にメタデータが正しく設定される."""
@@ -378,6 +398,7 @@ async def test_metadata_version_increments(predictor, db):
 
 
 # --- Issue #016: 低品質モデル無効化 ---
+
 
 async def test_low_quality_model_disabled(predictor, db):
     """R^2スコアが閾値未満の場合モデルが無効化される."""

@@ -22,7 +22,11 @@ export function Candidates(_props: RoutableProps) {
   const [filter, setFilter] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  const { data: candidates = [], isLoading, error } = useQuery<Candidate[], Error>({
+  const {
+    data: candidates = [],
+    isLoading,
+    error,
+  } = useQuery<Candidate[], Error>({
     queryKey: queryKeys.candidates(filter),
     queryFn: () => api.getCandidates(filter, 100),
   });

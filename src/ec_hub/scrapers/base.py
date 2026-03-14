@@ -36,8 +36,7 @@ class SourceSearcher(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def site_name(self) -> str:
-        ...
+    def site_name(self) -> str: ...
 
     @abc.abstractmethod
     async def search(self, query: str, *, max_results: int = 10) -> SourceSearchResult:

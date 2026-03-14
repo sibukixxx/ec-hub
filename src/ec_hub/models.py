@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 # --- eBay商品関連 ---
 
+
 class ListingCondition(str, Enum):
     NEW = "New"
     OPEN_BOX = "Open box"
@@ -61,6 +62,7 @@ class SearchResult(BaseModel):
 
 
 # --- 候補商品 ---
+
 
 class CandidateStatus(str, Enum):
     PENDING = "pending"
@@ -123,6 +125,7 @@ class Listing(BaseModel):
 
 # --- 注文管理 ---
 
+
 class OrderStatus(str, Enum):
     AWAITING_PURCHASE = "awaiting_purchase"
     PURCHASED = "purchased"
@@ -157,6 +160,7 @@ class Order(BaseModel):
 
 # --- メッセージ分類 ---
 
+
 class MessageCategory(str, Enum):
     SHIPPING_TRACKING = "shipping_tracking"
     CONDITION = "condition"
@@ -182,6 +186,7 @@ class BuyerMessage(BaseModel):
 
 
 # --- 利益計算 ---
+
 
 class ProfitBreakdown(BaseModel):
     """利益計算の内訳."""

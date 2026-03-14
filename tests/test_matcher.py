@@ -321,7 +321,6 @@ def test_is_good_match_default_threshold():
     assert is_good_match(low) is False
 
 
-
 def test_normalize_match_threshold_ratio_to_score():
     assert normalize_match_threshold(0.6) == 60
 

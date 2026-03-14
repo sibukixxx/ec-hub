@@ -56,13 +56,17 @@ async def check_all_services(db: Database, settings: object) -> list[dict]:
             error_message = f"Missing keys: {', '.join(missing)}"
 
         await db.upsert_integration_status(
-            service_name, status, error_message=error_message,
+            service_name,
+            status,
+            error_message=error_message,
         )
-        results.append({
-            "service_name": service_name,
-            "status": status,
-            "error_message": error_message,
-        })
+        results.append(
+            {
+                "service_name": service_name,
+                "status": status,
+                "error_message": error_message,
+            }
+        )
         logger.debug("ヘルスチェック: %s → %s", service_name, status)
 
     return results

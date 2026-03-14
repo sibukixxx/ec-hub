@@ -29,7 +29,10 @@ class JobRunner:
             result = await fn()
             items, warnings, errors = self._parse_result(result)
             await self._db.complete_job_run(
-                run_id, items_processed=items, warnings=warnings, errors=errors,
+                run_id,
+                items_processed=items,
+                warnings=warnings,
+                errors=errors,
             )
             return result
         except Exception as exc:

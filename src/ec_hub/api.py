@@ -76,6 +76,7 @@ async def get_ctx() -> AppContext:
 
 # --- リクエスト/レスポンスモデル ---
 
+
 class CandidateStatusUpdate(BaseModel):
     status: str
 
@@ -125,6 +126,7 @@ class DashboardResponse(BaseModel):
 
 # --- ダッシュボード ---
 
+
 @app.get("/api/dashboard")
 async def get_dashboard(
     ctx: Annotated[AppContext, Depends(get_ctx)],
@@ -134,6 +136,7 @@ async def get_dashboard(
 
 
 # --- 候補管理 ---
+
 
 @app.get("/api/candidates")
 async def list_candidates(
@@ -170,6 +173,7 @@ async def update_candidate_status(
 
 # --- 注文管理 ---
 
+
 @app.get("/api/orders")
 async def list_orders(
     ctx: Annotated[AppContext, Depends(get_ctx)],
@@ -192,6 +196,7 @@ async def get_order(
 
 # --- 利益計算 ---
 
+
 @app.post("/api/calc/profit")
 async def calc_profit(
     req: ProfitCalcRequest,
@@ -208,6 +213,7 @@ async def calc_profit(
 
 # --- 価格比較 ---
 
+
 @app.post("/api/compare")
 async def compare_prices(
     req: CompareRequest,
@@ -222,20 +228,22 @@ async def compare_prices(
     async with EbayScraper() as scraper:
         result = await scraper.search(req.keyword, page=1)
         for p in result.products[: req.max_results]:
-            ebay_items.append({
-                "item_id": p.item_id,
-                "title": p.title,
-                "price_usd": p.price,
-                "price_jpy": int((p.price or 0) * fx_rate),
-                "url": p.url,
-                "image_url": p.image_url,
-                "category": p.category,
-                "condition": p.condition.value if p.condition else None,
-                "shipping": {
-                    "cost": p.shipping.cost if p.shipping else None,
-                    "free": p.shipping.free_shipping if p.shipping else False,
-                },
-            })
+            ebay_items.append(
+                {
+                    "item_id": p.item_id,
+                    "title": p.title,
+                    "price_usd": p.price,
+                    "price_jpy": int((p.price or 0) * fx_rate),
+                    "url": p.url,
+                    "image_url": p.image_url,
+                    "category": p.category,
+                    "condition": p.condition.value if p.condition else None,
+                    "shipping": {
+                        "cost": p.shipping.cost if p.shipping else None,
+                        "free": p.shipping.free_shipping if p.shipping else False,
+                    },
+                }
+            )
 
     # Search candidates DB for matching items
     candidates = await ctx.candidates.list(limit=200)
@@ -262,9 +270,7 @@ async def compare_prices(
 
     matched.sort(
         key=lambda c: (
-            c.get("compare_match_score")
-            if c.get("compare_match_score") is not None
-            else c.get("match_score", -1),
+            c.get("compare_match_score") if c.get("compare_match_score") is not None else c.get("match_score", -1),
             c.get("match_score", -1),
             c.get("margin_rate", 0),
         ),
@@ -287,6 +293,7 @@ async def compare_prices(
 
 
 # --- 価格予測 ---
+
 
 @app.post("/api/predict/price")
 async def predict_price(

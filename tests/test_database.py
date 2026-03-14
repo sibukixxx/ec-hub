@@ -166,14 +166,24 @@ async def test_count_candidates_by_status_returns_count(db):
 
     # 2件追加
     await db.add_candidate(
-        item_code="CNT01", source_site="amazon", title_jp="カウント1",
-        title_en=None, cost_jpy=1000, ebay_price_usd=30.0,
-        net_profit_jpy=1000, margin_rate=1.0,
+        item_code="CNT01",
+        source_site="amazon",
+        title_jp="カウント1",
+        title_en=None,
+        cost_jpy=1000,
+        ebay_price_usd=30.0,
+        net_profit_jpy=1000,
+        margin_rate=1.0,
     )
     cid2 = await db.add_candidate(
-        item_code="CNT02", source_site="rakuten", title_jp="カウント2",
-        title_en=None, cost_jpy=2000, ebay_price_usd=60.0,
-        net_profit_jpy=2000, margin_rate=1.0,
+        item_code="CNT02",
+        source_site="rakuten",
+        title_jp="カウント2",
+        title_en=None,
+        cost_jpy=2000,
+        ebay_price_usd=60.0,
+        net_profit_jpy=2000,
+        margin_rate=1.0,
     )
     await db.update_candidate_status(cid2, "approved")
 
@@ -191,10 +201,12 @@ async def test_count_orders_by_status_returns_count(db):
     assert await db.count_orders_by_status("awaiting_purchase") == 0
 
     await db.add_order(
-        ebay_order_id="CNT-001", sale_price_usd=40.0,
+        ebay_order_id="CNT-001",
+        sale_price_usd=40.0,
     )
     oid2 = await db.add_order(
-        ebay_order_id="CNT-002", sale_price_usd=50.0,
+        ebay_order_id="CNT-002",
+        sale_price_usd=50.0,
     )
     await db.update_order(oid2, status="shipped")
 
@@ -476,7 +488,6 @@ async def test_add_message_derives_links_from_order(db):
     assert msg["candidate_item_code"] == "B09LISTING"
 
 
-
 # --- research_runs ---
 
 
@@ -669,7 +680,8 @@ async def test_get_job_runs_filters_by_job_name(db):
 
 async def test_upsert_integration_status_creates_new(db):
     await db.upsert_integration_status(
-        service_name="ebay_api", status="ok",
+        service_name="ebay_api",
+        status="ok",
     )
     statuses = await db.get_all_integration_status()
     assert len(statuses) == 1
@@ -680,7 +692,9 @@ async def test_upsert_integration_status_creates_new(db):
 async def test_upsert_integration_status_updates_existing(db):
     await db.upsert_integration_status(service_name="ebay_api", status="ok")
     await db.upsert_integration_status(
-        service_name="ebay_api", status="degraded", error_message="Rate limited",
+        service_name="ebay_api",
+        status="degraded",
+        error_message="Rate limited",
     )
     statuses = await db.get_all_integration_status()
     assert len(statuses) == 1

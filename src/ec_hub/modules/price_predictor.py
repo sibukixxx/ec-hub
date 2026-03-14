@@ -34,15 +34,30 @@ logger = logging.getLogger(__name__)
 # Known categories and sources for label encoding
 KNOWN_SOURCES = ["amazon", "rakuten", "yahoo_shopping", "unknown"]
 KNOWN_CATEGORIES = [
-    "Collectibles", "Toys & Hobbies", "Video Games", "Electronics",
-    "Clothing", "Books", "Music", "Art", "Pottery & Glass",
-    "Coins & Paper Money", "Sports", "Health & Beauty",
-    "Home & Garden", "Jewelry & Watches", "Other",
+    "Collectibles",
+    "Toys & Hobbies",
+    "Video Games",
+    "Electronics",
+    "Clothing",
+    "Books",
+    "Music",
+    "Art",
+    "Pottery & Glass",
+    "Coins & Paper Money",
+    "Sports",
+    "Health & Beauty",
+    "Home & Garden",
+    "Jewelry & Watches",
+    "Other",
 ]
 
 FEATURE_NAMES = [
-    "cost_jpy", "weight_g", "source_site", "category",
-    "ebay_sold_count_30d", "price_density",
+    "cost_jpy",
+    "weight_g",
+    "source_site",
+    "category",
+    "ebay_sold_count_30d",
+    "price_density",
 ]
 
 # Trusted statuses for training data
@@ -114,14 +129,16 @@ class PricePredictor:
         ebay_sold_count_30d: int = 0,
     ) -> np.ndarray:
         """特徴量ベクトルを構築する."""
-        return np.array([
-            cost_jpy,
-            weight_g,
-            self._encode_source(source_site),
-            self._encode_category(category),
-            ebay_sold_count_30d,
-            cost_jpy / max(weight_g, 1),  # price density (JPY/g)
-        ]).reshape(1, -1)
+        return np.array(
+            [
+                cost_jpy,
+                weight_g,
+                self._encode_source(source_site),
+                self._encode_category(category),
+                ebay_sold_count_30d,
+                cost_jpy / max(weight_g, 1),  # price density (JPY/g)
+            ]
+        ).reshape(1, -1)
 
     async def train(
         self,
@@ -153,24 +170,27 @@ class PricePredictor:
         if len(training_data) < min_samples:
             logger.warning(
                 "学習データ不足: %d件 (最低%d件必要)。ルールベース予測にフォールバック。",
-                len(training_data), min_samples,
+                len(training_data),
+                min_samples,
             )
             self._is_trained = False
             self._model_score = 0.0
             return 0.0
 
         # Build feature matrix and target
-        X = np.array([
+        X = np.array(
             [
-                c["cost_jpy"],
-                c.get("weight_g") or 500,
-                self._encode_source(c.get("source_site", "unknown")),
-                self._encode_category(c.get("category")),
-                c.get("ebay_sold_count_30d") or 0,
-                c["cost_jpy"] / max(c.get("weight_g") or 500, 1),
+                [
+                    c["cost_jpy"],
+                    c.get("weight_g") or 500,
+                    self._encode_source(c.get("source_site", "unknown")),
+                    self._encode_category(c.get("category")),
+                    c.get("ebay_sold_count_30d") or 0,
+                    c["cost_jpy"] / max(c.get("weight_g") or 500, 1),
+                ]
+                for c in training_data
             ]
-            for c in training_data
-        ])
+        )
         y = np.array([c["ebay_price_usd"] for c in training_data])
 
         self._model = GradientBoostingRegressor(
@@ -193,7 +213,8 @@ class PricePredictor:
         if self._model_score < min_quality_score:
             logger.warning(
                 "モデル品質不足: R²=%.3f (閾値%.3f)。モデル無効化。",
-                self._model_score, min_quality_score,
+                self._model_score,
+                min_quality_score,
             )
             self._is_trained = False
             self._model = None
@@ -214,7 +235,9 @@ class PricePredictor:
 
         logger.info(
             "価格予測モデル学習完了: v%d, %d件, R²=%.3f",
-            self._metadata.version, len(training_data), self._model_score,
+            self._metadata.version,
+            len(training_data),
+            self._model_score,
         )
         return self._model_score
 

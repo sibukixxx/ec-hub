@@ -98,9 +98,7 @@ async def test_run_profit_tracker_records_job_run(ctx):
     """_run_profit_tracker が job_runs テーブルに記録される."""
     with patch("ec_hub.modules.profit_tracker.ProfitTracker") as MockPT:
         mock_instance = AsyncMock()
-        mock_instance.generate_daily_report = AsyncMock(
-            return_value={"report_date": "2026-03-15"}
-        )
+        mock_instance.generate_daily_report = AsyncMock(return_value={"report_date": "2026-03-15"})
         MockPT.return_value = mock_instance
 
         await _run_profit_tracker(ctx)

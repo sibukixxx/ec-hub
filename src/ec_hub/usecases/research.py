@@ -25,5 +25,7 @@ class ResearchUseCase:
 
         runner = JobRunner(self._ctx.db)
         return await runner.run(
-            "research", _execute, params={"keywords": keywords, "pages": pages},
+            "research",
+            _execute,
+            params={"keywords": keywords, "pages": pages},
         )

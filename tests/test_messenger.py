@@ -11,6 +11,7 @@ from ec_hub.modules.messenger import (
 
 # --- キーワード分類テスト (フォールバック) ---
 
+
 def test_classify_shipping():
     messenger = Messenger.__new__(Messenger)
     messenger._claude_classifier = None
@@ -61,6 +62,7 @@ def test_get_template_reply():
 
 # --- classify_message (非同期) テスト ---
 
+
 async def test_classify_message_uses_keywords_when_no_claude():
     """Claude未設定時はキーワード分類を使用."""
     messenger = Messenger.__new__(Messenger)
@@ -81,6 +83,7 @@ async def test_classify_message_fallback_on_error():
 
 
 # --- _ClaudeClassifier テスト ---
+
 
 async def test_claude_classifier_shipping():
     """Claude Haiku が shipping_tracking を返す場合."""
@@ -165,6 +168,7 @@ async def test_claude_classifier_unknown_response():
 
 
 # --- Messenger 初期化テスト ---
+
 
 def test_messenger_has_no_claude_by_default():
     """API未設定ではClaude分類器なし."""

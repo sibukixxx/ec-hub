@@ -71,9 +71,7 @@ export function Messages(_props: RoutableProps) {
           </div>
           <button
             class="btn btn-primary"
-            onClick={() =>
-              setAppliedBuyer(buyer.trim() || undefined)
-            }
+            onClick={() => setAppliedBuyer(buyer.trim() || undefined)}
           >
             Refresh
           </button>

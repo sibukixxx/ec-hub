@@ -262,7 +262,9 @@ class EbayApiClient:
         fulfillment_id = data.get("fulfillmentId", "")
         logger.info(
             "Shipping fulfillment created: order=%s, tracking=%s, fulfillment=%s",
-            order_id, tracking_number, fulfillment_id,
+            order_id,
+            tracking_number,
+            fulfillment_id,
         )
         return data
 

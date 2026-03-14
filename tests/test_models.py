@@ -50,10 +50,7 @@ def test_shipping_info():
 
 
 def test_search_result():
-    products = [
-        Product(item_id=str(i), title=f"Product {i}", url=f"https://www.ebay.com/itm/{i}")
-        for i in range(3)
-    ]
+    products = [Product(item_id=str(i), title=f"Product {i}", url=f"https://www.ebay.com/itm/{i}") for i in range(3)]
     result = SearchResult(query="test query", total_results=100, products=products)
     assert result.query == "test query"
     assert result.total_results == 100

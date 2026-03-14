@@ -53,11 +53,19 @@ async def test_get_dashboard_summary_empty(ctx):
 
 async def test_get_dashboard_summary_with_data(ctx):
     await ctx.db.add_candidate(
-        item_code="D1", source_site="amazon", title_jp="a", title_en=None,
-        cost_jpy=1000, ebay_price_usd=30.0, net_profit_jpy=500, margin_rate=0.5,
+        item_code="D1",
+        source_site="amazon",
+        title_jp="a",
+        title_en=None,
+        cost_jpy=1000,
+        ebay_price_usd=30.0,
+        net_profit_jpy=500,
+        margin_rate=0.5,
     )
     oid = await ctx.db.add_order(
-        ebay_order_id="DASH-001", buyer_username="b", sale_price_usd=50.0,
+        ebay_order_id="DASH-001",
+        buyer_username="b",
+        sale_price_usd=50.0,
     )
     await ctx.db.update_order(oid, status="completed", net_profit_jpy=3000)
 
@@ -71,7 +79,10 @@ async def test_get_dashboard_summary_with_data(ctx):
 async def test_calc_profit(ctx):
     svc = DashboardService(ctx)
     breakdown = await svc.calc_profit(
-        cost_jpy=3000, ebay_price_usd=50.0, weight_g=500, destination="US",
+        cost_jpy=3000,
+        ebay_price_usd=50.0,
+        weight_g=500,
+        destination="US",
     )
     assert breakdown.net_profit != 0
     assert breakdown.fx_rate > 0

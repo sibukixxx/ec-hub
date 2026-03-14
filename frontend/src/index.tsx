@@ -8,5 +8,5 @@ render(
   <QueryClientProvider client={queryClient}>
     <App />
   </QueryClientProvider>,
-  document.getElementById('app')!,
+  document.getElementById('app')!
 );

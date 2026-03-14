@@ -62,9 +62,7 @@ class AppContext:
                 availability = settings.validate_required_services()
 
                 for svc in availability.degraded:
-                    logger.warning(
-                        "Service '%s' has no API keys configured — running in degraded mode", svc
-                    )
+                    logger.warning("Service '%s' has no API keys configured — running in degraded mode", svc)
                 if availability.unavailable_required:
                     raise SystemExit(
                         f"Required service(s) not configured: "

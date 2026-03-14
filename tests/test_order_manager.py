@@ -275,9 +275,11 @@ async def test_resolve_listing_from_order_line_items(order_manager, db):
         listed_fx_rate=150.0,
     )
 
-    resolved = await order_manager.resolve_listing_from_line_items([
-        {"sku": f"ECHUB-{cid}", "lineItemId": "LI-001"},
-    ])
+    resolved = await order_manager.resolve_listing_from_line_items(
+        [
+            {"sku": f"ECHUB-{cid}", "lineItemId": "LI-001"},
+        ]
+    )
     assert resolved is not None
     assert resolved["listing_id"] == lid
     assert resolved["candidate_id"] == cid
@@ -285,9 +287,11 @@ async def test_resolve_listing_from_order_line_items(order_manager, db):
 
 async def test_resolve_listing_returns_none_for_unknown_sku(order_manager, db):
     """未知のSKUではNoneを返す."""
-    resolved = await order_manager.resolve_listing_from_line_items([
-        {"sku": "UNKNOWN-SKU", "lineItemId": "LI-999"},
-    ])
+    resolved = await order_manager.resolve_listing_from_line_items(
+        [
+            {"sku": "UNKNOWN-SKU", "lineItemId": "LI-999"},
+        ]
+    )
     assert resolved is None
 
 
@@ -368,21 +372,23 @@ async def test_check_new_orders_resolves_traceability_from_line_items(order_mana
     )
     order_manager._ebay_api = AsyncMock()
     order_manager._ebay_api.is_configured = True
-    order_manager._ebay_api.get_orders = AsyncMock(return_value={
-        "orders": [
-            {
-                "orderId": "ORDER-TRACE-001",
-                "buyer": {"username": "trace_buyer"},
-                "pricingSummary": {"total": {"value": "120.0"}},
-                "fulfillmentStartInstructions": [
-                    {"shippingStep": {"shipTo": {"contactAddress": {"countryCode": "US"}}}},
-                ],
-                "lineItems": [
-                    {"sku": f"ECHUB-{cid}", "listingId": "EBAY-LIST-ORDER-1"},
-                ],
-            },
-        ],
-    })
+    order_manager._ebay_api.get_orders = AsyncMock(
+        return_value={
+            "orders": [
+                {
+                    "orderId": "ORDER-TRACE-001",
+                    "buyer": {"username": "trace_buyer"},
+                    "pricingSummary": {"total": {"value": "120.0"}},
+                    "fulfillmentStartInstructions": [
+                        {"shippingStep": {"shipTo": {"contactAddress": {"countryCode": "US"}}}},
+                    ],
+                    "lineItems": [
+                        {"sku": f"ECHUB-{cid}", "listingId": "EBAY-LIST-ORDER-1"},
+                    ],
+                },
+            ],
+        }
+    )
 
     orders = await order_manager.check_new_orders()
     assert len(orders) == 1

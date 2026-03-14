@@ -20,9 +20,7 @@ class OrderService:
         self._ctx = ctx
         self._manager = OrderManager(ctx.db, ctx.settings, ctx.fee_rules)
 
-    async def get_orders(
-        self, status: str | None = None, limit: int = 50
-    ) -> list[dict]:
+    async def get_orders(self, status: str | None = None, limit: int = 50) -> list[dict]:
         """注文一覧を取得する."""
         return await self._ctx.db.get_orders(status=status, limit=limit)
 
@@ -52,7 +50,9 @@ class OrderService:
     ) -> None:
         """発送完了を記録する."""
         await self._manager.mark_shipped(
-            order_id, tracking_number, shipping_cost_jpy,
+            order_id,
+            tracking_number,
+            shipping_cost_jpy,
             shipping_carrier=shipping_carrier,
         )
 

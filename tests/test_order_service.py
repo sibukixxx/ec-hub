@@ -50,7 +50,9 @@ async def test_get_orders_empty(ctx):
 
 async def test_get_orders_with_data(ctx):
     await ctx.db.add_order(
-        ebay_order_id="OS-001", buyer_username="buyer1", sale_price_usd=80.0,
+        ebay_order_id="OS-001",
+        buyer_username="buyer1",
+        sale_price_usd=80.0,
     )
     svc = OrderService(ctx)
     result = await svc.get_orders()
@@ -59,7 +61,9 @@ async def test_get_orders_with_data(ctx):
 
 async def test_get_order_by_id(ctx):
     oid = await ctx.db.add_order(
-        ebay_order_id="OS-002", buyer_username="buyer2", sale_price_usd=50.0,
+        ebay_order_id="OS-002",
+        buyer_username="buyer2",
+        sale_price_usd=50.0,
     )
     svc = OrderService(ctx)
     result = await svc.get_order(oid)
@@ -75,7 +79,8 @@ async def test_get_order_by_id_not_found(ctx):
 
 async def test_get_orders_by_status(ctx):
     oid = await ctx.db.add_order(
-        ebay_order_id="OS-003", sale_price_usd=60.0,
+        ebay_order_id="OS-003",
+        sale_price_usd=60.0,
     )
     await ctx.db.update_order(oid, status="shipped")
 

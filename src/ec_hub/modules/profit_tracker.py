@@ -75,11 +75,7 @@ class ProfitTracker:
 
     async def _set_exchange_rate_status(self, status: str, message: str | None = None) -> None:
         current = await self._db.get_integration_status("exchange_rate")
-        if (
-            status == "degraded"
-            and message
-            and (current is None or current.get("status") != "degraded")
-        ):
+        if status == "degraded" and message and (current is None or current.get("status") != "degraded"):
             await self._notifier.notify_exchange_rate_warning(message)
         await self._db.upsert_integration_status(
             "exchange_rate",
@@ -97,9 +93,7 @@ class ProfitTracker:
             return self._cached_fx_rate
 
         cached_record = await self._db.get_exchange_rate_cache()
-        cached_fetched_at = self._parse_timestamp(
-            cached_record.get("fetched_at") if cached_record else None
-        )
+        cached_fetched_at = self._parse_timestamp(cached_record.get("fetched_at") if cached_record else None)
         if cached_record and self._is_fresh(cached_fetched_at, ttl_minutes):
             rate = float(cached_record["rate"])
             await self._set_exchange_rate_status(
@@ -230,23 +224,14 @@ class ProfitTracker:
         date_str = target_date.isoformat()
 
         orders = await self._db.get_orders()
-        today_orders = [
-            o for o in orders
-            if o.get("ordered_at", "").startswith(date_str)
-        ]
+        today_orders = [o for o in orders if o.get("ordered_at", "").startswith(date_str)]
 
-        total_revenue = sum(
-            int((o.get("sale_price_usd", 0) or 0) * (o.get("fx_rate", 0) or 150))
-            for o in today_orders
-        )
+        total_revenue = sum(int((o.get("sale_price_usd", 0) or 0) * (o.get("fx_rate", 0) or 150)) for o in today_orders)
         total_cost = sum(o.get("actual_cost_jpy", 0) or 0 for o in today_orders)
         total_profit = sum(o.get("net_profit_jpy", 0) or 0 for o in today_orders)
 
         candidates = await self._db.get_candidates()
-        new_candidates = [
-            c for c in candidates
-            if c.get("created_at", "").startswith(date_str)
-        ]
+        new_candidates = [c for c in candidates if c.get("created_at", "").startswith(date_str)]
 
         report = {
             "report_date": date_str,

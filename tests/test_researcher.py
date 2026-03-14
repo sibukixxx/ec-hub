@@ -116,26 +116,20 @@ def test_simplify_search_query_removes_noise():
 
 def test_simplify_search_query_preserves_brand_in_long_title():
     """長いタイトルでもブランド名が6語制限で落ちない."""
-    result = simplify_search_query(
-        "Special Limited Collector Premium Deluxe Ultimate Sony WH-1000XM5 Headphones"
-    )
+    result = simplify_search_query("Special Limited Collector Premium Deluxe Ultimate Sony WH-1000XM5 Headphones")
     # Brand "Sony" is at word 7+ after noise removal, but should still be kept
     assert "sony" in result.lower()
 
 
 def test_simplify_search_query_preserves_model_in_long_title():
     """長いタイトルでも型番が6語制限で落ちない."""
-    result = simplify_search_query(
-        "Super Special Premium Collector Deluxe Ultimate Casio G-Shock GA-2100"
-    )
+    result = simplify_search_query("Super Special Premium Collector Deluxe Ultimate Casio G-Shock GA-2100")
     assert "ga-2100" in result.lower() or "ga2100" in result.lower()
 
 
 def test_simplify_search_query_brand_appears_early():
     """ブランド名がクエリの先頭付近に配置される."""
-    result = simplify_search_query(
-        "Special Limited Premium Collector Deluxe Sony WH-1000XM5"
-    )
+    result = simplify_search_query("Special Limited Premium Collector Deluxe Sony WH-1000XM5")
     words = result.lower().split()
     if "sony" in words:
         assert words.index("sony") <= 1
@@ -454,7 +448,6 @@ async def test_research_single_stores_match_data(researcher):
         assert candidates[0]["match_score"] > 0
 
 
-
 # --- provenance & dedup tests ---
 
 
@@ -526,17 +519,23 @@ async def test_run_creates_research_run(researcher, monkeypatch):
         ]
 
     monkeypatch.setattr(researcher, "search_ebay_sold", mock_search_ebay_sold)
-    monkeypatch.setattr(researcher, "_create_source_searchers", lambda: [
-        MockSourceSearcher([
-            SourceProduct(
-                item_code="AMZ_RUN",
-                source_site="amazon",
-                title="Bandai Test Figure Run Product",
-                price_jpy=2000,
-                url="https://amazon.co.jp/dp/AMZ_RUN",
+    monkeypatch.setattr(
+        researcher,
+        "_create_source_searchers",
+        lambda: [
+            MockSourceSearcher(
+                [
+                    SourceProduct(
+                        item_code="AMZ_RUN",
+                        source_site="amazon",
+                        title="Bandai Test Figure Run Product",
+                        price_jpy=2000,
+                        url="https://amazon.co.jp/dp/AMZ_RUN",
+                    ),
+                ]
             ),
-        ]),
-    ])
+        ],
+    )
 
     await researcher.run(queries=["test query"], pages=1)
     runs = await researcher._db.get_research_runs()

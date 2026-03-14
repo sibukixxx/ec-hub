@@ -39,11 +39,13 @@ def _sample_item(**overrides) -> dict:
 
 # --- site_name ---
 
+
 def test_site_name(client):
     assert client.site_name == "yahoo_shopping"
 
 
 # --- is_configured ---
+
 
 def test_is_configured(client):
     assert client.is_configured is True
@@ -54,6 +56,7 @@ def test_is_not_configured(unconfigured_client):
 
 
 # --- _parse_item ---
+
 
 def test_parse_item_basic():
     item = _sample_item()
@@ -126,6 +129,7 @@ def test_parse_item_invalid_rating():
 
 # --- search (async) ---
 
+
 async def test_search_unconfigured(unconfigured_client):
     result = await unconfigured_client.search("test")
     assert result.source_site == "yahoo_shopping"
@@ -185,6 +189,7 @@ async def test_search_max_results_capped(client):
 
 # --- get_item (async) ---
 
+
 async def test_get_item_unconfigured(unconfigured_client):
     result = await unconfigured_client.get_item("item001")
     assert result is None
@@ -223,6 +228,7 @@ async def test_get_item_not_found(client):
 
 # --- close ---
 
+
 async def test_close(client):
     mock_http = AsyncMock(spec=httpx.AsyncClient)
     mock_http.is_closed = False
@@ -245,6 +251,7 @@ async def test_close_no_client(client):
 
 
 # --- context manager ---
+
 
 async def test_context_manager():
     async with YahooShoppingClient(app_id="test") as client:
