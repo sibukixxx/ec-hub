@@ -177,12 +177,19 @@ class Messenger:
         body: str,
         ebay_message_id: str | None = None,
         order_id: int | None = None,
+        listing_id: int | None = None,
     ) -> bool:
         """メッセージを処理する.
 
         Returns:
             True: 自動応答した, False: エスカレーションした
         """
+        # Resolve listing_id from order if not provided
+        if listing_id is None and order_id is not None:
+            order = await self._db.get_order_by_id(order_id)
+            if order:
+                listing_id = order.get("listing_id")
+
         category = await self.classify_message(body)
 
         await self._db.add_message(
@@ -190,6 +197,7 @@ class Messenger:
             body=body,
             ebay_message_id=ebay_message_id,
             order_id=order_id,
+            listing_id=listing_id,
             category=category.value,
         )
 
@@ -206,6 +214,7 @@ class Messenger:
                 body=reply,
                 direction="outbound",
                 order_id=order_id,
+                listing_id=listing_id,
                 category=category.value,
                 auto_replied=True,
             )

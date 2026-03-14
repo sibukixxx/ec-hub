@@ -10,7 +10,7 @@ from ec_hub.modules.order_manager import OrderManager
 if TYPE_CHECKING:
     from ec_hub.context import AppContext
 
-VALID_STATUSES = {"awaiting_purchase", "purchased", "shipped", "delivered", "completed"}
+VALID_STATUSES = {"awaiting_purchase", "purchased", "shipped", "delivered", "completed", "cancelled"}
 
 
 class OrderUseCase:
@@ -57,6 +57,8 @@ class OrderUseCase:
                 await manager.mark_delivered(order_id)
             elif status == "completed":
                 await manager.complete_order(order_id)
+            elif status == "cancelled":
+                await manager.cancel_order(order_id)
             else:
                 await self._ctx.orders.update(order_id, status=status)
         finally:

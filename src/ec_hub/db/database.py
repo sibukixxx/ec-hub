@@ -437,6 +437,27 @@ class Database:
         row = await cursor.fetchone()
         return dict(row) if row else None
 
+    async def get_listing_by_ebay_listing_id(self, ebay_listing_id: str) -> dict | None:
+        """eBay listing_idで出品を検索する."""
+        cursor = await self.db.execute(
+            "SELECT * FROM listings WHERE listing_id = ?", (ebay_listing_id,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def get_listings(self, status: str | None = None, limit: int = 50) -> list[dict]:
+        if status:
+            cursor = await self.db.execute(
+                "SELECT * FROM listings WHERE status = ? ORDER BY created_at DESC LIMIT ?",
+                (status, limit),
+            )
+        else:
+            cursor = await self.db.execute(
+                "SELECT * FROM listings ORDER BY created_at DESC LIMIT ?", (limit,)
+            )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
     async def update_listing(self, id_: int, **fields: object) -> None:
         if not fields:
             return

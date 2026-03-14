@@ -136,6 +136,7 @@ class Order(BaseModel):
     id: int | None = None
     ebay_order_id: str
     candidate_id: int | None = None
+    listing_id: int | None = None
     buyer_username: str | None = None
     sale_price_usd: float
     actual_cost_jpy: int | None = None

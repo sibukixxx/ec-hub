@@ -205,3 +205,141 @@ async def test_resolve_listing_from_sku(order_manager, db):
     candidate = await db.get_candidate_by_id(listing["candidate_id"])
     assert candidate is not None
     assert candidate["item_code"] == "B09RESOLVE"
+
+
+async def test_register_order_updates_listing_status_to_sold(order_manager, db):
+    """注文登録時にlisting statusがsoldに更新される."""
+    cid = await db.add_candidate(
+        item_code="B09SOLD",
+        source_site="amazon",
+        title_jp="売約済み商品",
+        title_en="Sold Product",
+        cost_jpy=3000,
+        ebay_price_usd=80.0,
+        net_profit_jpy=5000,
+        margin_rate=1.67,
+    )
+    lid = await db.add_listing(
+        candidate_id=cid,
+        sku=f"ECHUB-{cid}",
+        title_en="Sold Product",
+        listed_price_usd=80.0,
+        listed_fx_rate=150.0,
+    )
+    listing_before = await db.get_listing_by_id(lid)
+    assert listing_before["status"] == "active"
+
+    await order_manager.register_order(
+        ebay_order_id="SOLD-001",
+        buyer_username="buyer_sold",
+        sale_price_usd=80.0,
+        destination_country="US",
+        candidate_id=cid,
+        listing_id=lid,
+    )
+    listing_after = await db.get_listing_by_id(lid)
+    assert listing_after["status"] == "sold"
+
+
+async def test_register_order_without_listing_does_not_fail(order_manager, db):
+    """listing_idなしの注文登録でもエラーにならない."""
+    oid = await order_manager.register_order(
+        ebay_order_id="NO-LID-001",
+        buyer_username="buyer_nolid",
+        sale_price_usd=50.0,
+        destination_country="US",
+    )
+    order = await db.get_order_by_id(oid)
+    assert order["listing_id"] is None
+
+
+async def test_resolve_listing_from_order_line_items(order_manager, db):
+    """eBay注文のline itemsからSKU→listing→candidateを逆引きする."""
+    cid = await db.add_candidate(
+        item_code="B09LINE",
+        source_site="amazon",
+        title_jp="ラインアイテム商品",
+        title_en="Line Item Product",
+        cost_jpy=4000,
+        ebay_price_usd=100.0,
+        net_profit_jpy=7000,
+        margin_rate=1.75,
+    )
+    lid = await db.add_listing(
+        candidate_id=cid,
+        sku=f"ECHUB-{cid}",
+        title_en="Line Item Product",
+        listed_price_usd=100.0,
+        listed_fx_rate=150.0,
+    )
+
+    resolved = await order_manager.resolve_listing_from_line_items([
+        {"sku": f"ECHUB-{cid}", "lineItemId": "LI-001"},
+    ])
+    assert resolved is not None
+    assert resolved["listing_id"] == lid
+    assert resolved["candidate_id"] == cid
+
+
+async def test_resolve_listing_returns_none_for_unknown_sku(order_manager, db):
+    """未知のSKUではNoneを返す."""
+    resolved = await order_manager.resolve_listing_from_line_items([
+        {"sku": "UNKNOWN-SKU", "lineItemId": "LI-999"},
+    ])
+    assert resolved is None
+
+
+async def test_cancel_order_restores_listing_to_active(order_manager, db):
+    """注文キャンセル時にlisting statusがactiveに戻る."""
+    cid = await db.add_candidate(
+        item_code="B09CANCEL",
+        source_site="amazon",
+        title_jp="キャンセル商品",
+        title_en="Cancel Product",
+        cost_jpy=3000,
+        ebay_price_usd=80.0,
+        net_profit_jpy=5000,
+        margin_rate=1.67,
+    )
+    lid = await db.add_listing(
+        candidate_id=cid,
+        sku=f"ECHUB-{cid}",
+        title_en="Cancel Product",
+        listed_price_usd=80.0,
+        listed_fx_rate=150.0,
+    )
+    oid = await order_manager.register_order(
+        ebay_order_id="CANCEL-001",
+        buyer_username="buyer_cancel",
+        sale_price_usd=80.0,
+        destination_country="US",
+        candidate_id=cid,
+        listing_id=lid,
+    )
+    # listing should be sold
+    listing = await db.get_listing_by_id(lid)
+    assert listing["status"] == "sold"
+
+    # cancel the order
+    await order_manager.cancel_order(oid)
+
+    # listing should be active again
+    listing = await db.get_listing_by_id(lid)
+    assert listing["status"] == "active"
+
+    # order should be cancelled
+    order = await db.get_order_by_id(oid)
+    assert order["status"] == "cancelled"
+
+
+async def test_cancel_order_without_listing(order_manager, db):
+    """listing_idなしの注文キャンセルでもエラーにならない."""
+    oid = await order_manager.register_order(
+        ebay_order_id="CANCEL-002",
+        buyer_username="buyer_cancel2",
+        sale_price_usd=50.0,
+        destination_country="US",
+    )
+    await order_manager.cancel_order(oid)
+    order = await db.get_order_by_id(oid)
+    assert order["status"] == "cancelled"

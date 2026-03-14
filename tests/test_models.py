@@ -88,6 +88,16 @@ def test_order():
     )
     assert o.status == OrderStatus.AWAITING_PURCHASE
     assert o.packing_cost_jpy == 200
+    assert o.listing_id is None
+
+
+def test_order_with_listing_id():
+    o = Order(
+        ebay_order_id="12-34567-89012",
+        sale_price_usd=80.0,
+        listing_id=42,
+    )
+    assert o.listing_id == 42
 
 
 def test_order_status_enum():

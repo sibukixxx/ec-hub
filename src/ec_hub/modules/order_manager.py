@@ -84,14 +84,39 @@ class OrderManager:
             ship_to_address = shipping_step.get("shipTo", {}).get("contactAddress", {})
             country = ship_to_address.get("countryCode", "US")
 
-            new_orders.append({
+            order_data: dict = {
                 "ebay_order_id": order_id,
                 "buyer_username": buyer,
                 "sale_price_usd": sale_price,
                 "destination_country": country,
-            })
+            }
+
+            # Resolve listing/candidate from line items SKU
+            line_items = order.get("lineItems", [])
+            resolved = await self.resolve_listing_from_line_items(line_items)
+            if resolved:
+                order_data["listing_id"] = resolved["listing_id"]
+                order_data["candidate_id"] = resolved["candidate_id"]
+
+            new_orders.append(order_data)
 
         return new_orders
+
+    async def resolve_listing_from_line_items(
+        self, line_items: list[dict]
+    ) -> dict | None:
+        """eBay注文のline itemsからSKU→listing→candidateを逆引きする."""
+        for item in line_items:
+            sku = item.get("sku")
+            if not sku:
+                continue
+            listing = await self._db.get_listing_by_sku(sku)
+            if listing:
+                return {
+                    "listing_id": listing["id"],
+                    "candidate_id": listing["candidate_id"],
+                }
+        return None
 
     async def register_order(
         self,
@@ -112,9 +137,30 @@ class OrderManager:
             sale_price_usd=sale_price_usd,
             destination_country=destination_country,
         )
+
+        # Update listing status to sold
+        if listing_id is not None:
+            await self._db.update_listing(listing_id, status="sold")
+
         await self._notifier.notify_order(ebay_order_id, sale_price_usd)
         logger.info("注文登録: %s ($%.2f) → %s", ebay_order_id, sale_price_usd, destination_country)
         return order_id
+
+    async def cancel_order(self, order_id: int) -> None:
+        """注文をキャンセルし、紐づくlistingをactiveに戻す."""
+        target = await self._db.get_order_by_id(order_id)
+        if not target:
+            logger.error("注文が見つかりません: order_id=%d", order_id)
+            return
+
+        await self._db.update_order(order_id, status="cancelled")
+
+        listing_id = target.get("listing_id")
+        if listing_id is not None:
+            await self._db.update_listing(listing_id, status="active")
+            logger.info("出品をactiveに復元: listing_id=%d", listing_id)
+
+        logger.info("注文キャンセル: order_id=%d", order_id)
 
     async def mark_purchased(self, order_id: int, actual_cost_jpy: int) -> None:
         """仕入れ完了を記録する."""
