@@ -5,7 +5,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from ec_hub.api import app, get_db, get_fee_rules, get_settings
+from ec_hub.api import app, get_ctx
+from ec_hub.context import AppContext
 from ec_hub.db import Database
 
 
@@ -44,11 +45,16 @@ def fee_rules():
 
 
 @pytest.fixture
-async def client(db, settings, fee_rules):
+async def ctx(db, settings, fee_rules):
+    """AppContext with in-memory DB and test settings."""
+    context = AppContext(settings=settings, fee_rules=fee_rules, db=db)
+    return context
+
+
+@pytest.fixture
+async def client(ctx):
     """FastAPI テストクライアント (dependency_overrides 方式)."""
-    app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[get_settings] = lambda: settings
-    app.dependency_overrides[get_fee_rules] = lambda: fee_rules
+    app.dependency_overrides[get_ctx] = lambda: ctx
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
@@ -201,7 +207,7 @@ async def test_dashboard_with_data(client, db):
 # --- リサーチ API ---
 
 
-@patch("ec_hub.api.Researcher")
+@patch("ec_hub.usecases.research.Researcher")
 async def test_research_run(mock_researcher_cls, client):
     """POST /api/research/run returns registered count."""
     mock_instance = AsyncMock()
@@ -218,7 +224,7 @@ async def test_research_run(mock_researcher_cls, client):
     assert data["status"] == "completed"
 
 
-@patch("ec_hub.api.Researcher")
+@patch("ec_hub.usecases.research.Researcher")
 async def test_research_run_default_keywords(mock_researcher_cls, client):
     """POST /api/research/run with no body uses defaults."""
     mock_instance = AsyncMock()
