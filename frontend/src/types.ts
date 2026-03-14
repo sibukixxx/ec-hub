@@ -14,6 +14,7 @@ export interface DashboardData {
   recent_profit: number;
   fx_rate: number;
   health: ServiceHealth[];
+  recent_jobs: JobRun[];
 }
 
 export interface ServiceHealth {
