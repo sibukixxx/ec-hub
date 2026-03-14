@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
@@ -88,6 +89,7 @@ class ExchangeRateConfig(_ConfigModel):
 
 class DatabaseConfig(_ConfigModel):
     path: str = "db/ebay.db"
+    resolved_path: Path | None = None
 
 
 class SchedulerCronJob(_ConfigModel):
@@ -131,6 +133,14 @@ class ListingConfig(_ConfigModel):
 # Root Settings model
 # ---------------------------------------------------------------------------
 
+class ServiceAvailability(BaseModel):
+    """Service availability status after validation."""
+
+    available: list[str] = Field(default_factory=list)
+    degraded: list[str] = Field(default_factory=list)
+    unavailable_required: list[str] = Field(default_factory=list)
+
+
 class Settings(_ConfigModel):
     ebay: EbayConfig = Field(default_factory=EbayConfig)
     line: LineConfig = Field(default_factory=LineConfig)
@@ -145,6 +155,45 @@ class Settings(_ConfigModel):
     research: ResearchConfig = Field(default_factory=ResearchConfig)
     muji: MujiConfig = Field(default_factory=MujiConfig)
     listing: ListingConfig = Field(default_factory=ListingConfig)
+
+    def resolve_paths(self, project_root: Path) -> None:
+        """Resolve relative paths in config against project root."""
+        db_path = Path(self.database.path)
+        if str(self.database.path) != ":memory:" and not db_path.is_absolute():
+            self.database.resolved_path = project_root / db_path
+        else:
+            self.database.resolved_path = db_path
+
+    def validate_required_services(self) -> ServiceAvailability:
+        """Check which services are available based on API key configuration.
+
+        Required services (eBay): missing keys → unavailable_required
+        Optional services (LINE, DeepL, Claude, Amazon, Rakuten, Yahoo): missing keys → degraded
+        """
+        result = ServiceAvailability()
+
+        # Required: eBay (core business)
+        if self.ebay.app_id and self.ebay.cert_id and self.ebay.user_token:
+            result.available.append("ebay")
+        else:
+            result.unavailable_required.append("ebay")
+
+        # Optional services: degraded mode if keys missing
+        optional_checks: list[tuple[str, bool]] = [
+            ("line", bool(self.line.channel_access_token)),
+            ("deepl", bool(self.deepl.api_key)),
+            ("claude", bool(self.claude.api_key)),
+            ("amazon", bool(self.amazon.access_key and self.amazon.secret_key)),
+            ("rakuten", bool(self.rakuten.app_id)),
+            ("yahoo_shopping", bool(self.yahoo_shopping.app_id)),
+        ]
+        for name, has_keys in optional_checks:
+            if has_keys:
+                result.available.append(name)
+            else:
+                result.degraded.append(name)
+
+        return result
 
 
 # ---------------------------------------------------------------------------

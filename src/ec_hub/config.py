@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+import logging
 import os
 from pathlib import Path
 
@@ -9,10 +11,23 @@ import yaml
 
 from ec_hub.config_schema import FeeRules, Settings
 
+logger = logging.getLogger(__name__)
+
 _CONFIG_DIR = Path(__file__).resolve().parent.parent.parent / "config"
 
 # Environment variable prefix for overrides
 _ENV_PREFIX = "EC_HUB_"
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Deep merge override into base dict (override wins)."""
+    result = copy.deepcopy(base)
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = copy.deepcopy(value)
+    return result
 
 
 def _apply_env_overrides(data: dict) -> dict:
@@ -35,10 +50,22 @@ def _apply_env_overrides(data: dict) -> dict:
 
 
 def load_settings(path: Path | None = None) -> Settings:
-    """settings.yaml を読み込み、型付き Settings モデルを返す."""
+    """settings.yaml を読み込み、型付き Settings モデルを返す.
+
+    Priority: settings.yaml < settings.local.yaml < environment variables
+    """
     p = path or _CONFIG_DIR / "settings.yaml"
     with open(p, encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
+
+    # Overlay settings.local.yaml if it exists (same directory as base)
+    local_path = p.parent / "settings.local.yaml"
+    if local_path.exists():
+        with open(local_path, encoding="utf-8") as f:
+            local_raw = yaml.safe_load(f) or {}
+        raw = _deep_merge(raw, local_raw)
+        logger.info("Loaded local settings overlay: %s", local_path)
+
     raw = _apply_env_overrides(raw)
     return Settings.model_validate(raw)
 
