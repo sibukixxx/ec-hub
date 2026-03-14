@@ -19,8 +19,14 @@ def predictor(db):
     return PricePredictor(db)
 
 
-async def _seed_candidates(db, count=20):
-    """テスト用の候補データを投入する."""
+async def _seed_candidates(db, count=20, *, status="approved"):
+    """テスト用の候補データを投入する.
+
+    Args:
+        db: Database instance
+        count: Number of candidates to create
+        status: Status to assign (default: "approved" for trusted training data)
+    """
     import random
 
     random.seed(42)
@@ -31,7 +37,7 @@ async def _seed_candidates(db, count=20):
         price_usd = round(cost * markup / 150, 2)
         margin = random.uniform(0.2, 0.8)
         profit = int(price_usd * 150 * margin - cost)
-        await db.add_candidate(
+        candidate_id = await db.add_candidate(
             item_code=f"ITEM{i:03d}",
             source_site=random.choice(["amazon", "rakuten", "yahoo_shopping"]),
             title_jp=f"テスト商品 {i}",
@@ -44,6 +50,44 @@ async def _seed_candidates(db, count=20):
             category=random.choice(["Electronics", "Toys & Hobbies", "Collectibles", None]),
             ebay_sold_count_30d=random.randint(0, 50),
         )
+        if status != "pending":
+            await db.update_candidate_status(candidate_id, status)
+
+
+async def _seed_candidates_with_status(db, status_counts):
+    """異なるステータスの候補データを投入する.
+
+    Args:
+        db: Database instance
+        status_counts: list of (status, count) tuples
+    """
+    import random
+
+    random.seed(42)
+    idx = 0
+    for status, count in status_counts:
+        for _ in range(count):
+            cost = random.randint(1000, 10000)
+            markup = random.uniform(1.5, 3.0)
+            price_usd = round(cost * markup / 150, 2)
+            margin = random.uniform(0.2, 0.8)
+            profit = int(price_usd * 150 * margin - cost)
+            candidate_id = await db.add_candidate(
+                item_code=f"ITEM{idx:03d}",
+                source_site=random.choice(["amazon", "rakuten", "yahoo_shopping"]),
+                title_jp=f"テスト商品 {idx}",
+                title_en=None,
+                cost_jpy=cost,
+                ebay_price_usd=price_usd,
+                net_profit_jpy=profit,
+                margin_rate=margin,
+                weight_g=random.randint(100, 2000),
+                category=random.choice(["Electronics", "Toys & Hobbies", "Collectibles", None]),
+                ebay_sold_count_30d=random.randint(0, 50),
+            )
+            if status != "pending":
+                await db.update_candidate_status(candidate_id, status)
+            idx += 1
 
 
 # --- 基本テスト ---
@@ -75,12 +119,13 @@ async def test_train_insufficient_data(predictor, db):
     """データ不足で学習しない."""
     # Only 3 candidates (below min_samples=10)
     for i in range(3):
-        await db.add_candidate(
+        candidate_id = await db.add_candidate(
             item_code=f"ITEM{i}", source_site="amazon",
             title_jp="test", title_en=None,
             cost_jpy=3000, ebay_price_usd=50.0,
             net_profit_jpy=3000, margin_rate=0.5,
         )
+        await db.update_candidate_status(candidate_id, "approved")
     score = await predictor.train(min_samples=10)
     assert score == 0.0
     assert predictor.is_trained is False
@@ -240,3 +285,92 @@ async def test_retrain_if_needed_insufficient(predictor, db):
     """データ不足で再学習しない."""
     retrained = await predictor.retrain_if_needed(min_new_samples=100)
     assert retrained is False
+
+
+# --- Issue #016: prediction_source フィールド ---
+
+def test_prediction_source_rule_based_when_untrained(predictor):
+    """未学習時はprediction_sourceが'rule_based'."""
+    result = predictor.predict(cost_jpy=3000, fx_rate=150.0)
+    assert result.prediction_source == "rule_based"
+
+
+async def test_prediction_source_ml_when_trained(predictor, db):
+    """学習後はprediction_sourceが'ml'."""
+    await _seed_candidates(db, count=30)
+    await predictor.train(min_samples=10)
+    result = predictor.predict(cost_jpy=3000, fx_rate=150.0)
+    assert result.prediction_source == "ml"
+
+
+# --- Issue #016: 学習データフィルタリング ---
+
+async def test_train_excludes_pending_status(predictor, db):
+    """pending ステータスの候補は学習データから除外される."""
+    # 30件 pending + 5件 approved → approved のみ5件 → min_samples=10 で学習不可
+    await _seed_candidates_with_status(db, [("pending", 30), ("approved", 5)])
+    await predictor.train(min_samples=10)
+    assert predictor.is_trained is False
+
+
+async def test_train_includes_trusted_statuses(predictor, db):
+    """approved/listed/completed は学習データに含まれる."""
+    await _seed_candidates_with_status(db, [
+        ("approved", 10),
+        ("listed", 10),
+        ("completed", 10),
+    ])
+    await predictor.train(min_samples=10)
+    assert predictor.is_trained is True
+
+
+# --- Issue #016: モデルメタデータ ---
+
+async def test_model_metadata_after_training(predictor, db):
+    """学習後にメタデータが正しく設定される."""
+    await _seed_candidates(db, count=30)
+    await predictor.train(min_samples=10)
+
+    meta = predictor.metadata
+    assert meta.version == 1
+    assert meta.trained_at is not None
+    assert meta.sample_count == 30
+    assert isinstance(meta.score, float)
+    assert len(meta.feature_names) > 0
+
+
+async def test_metadata_saved_and_loaded(predictor, db, tmp_path):
+    """メタデータが保存・読込で保持される."""
+    await _seed_candidates(db, count=30)
+    await predictor.train(min_samples=10)
+
+    model_path = tmp_path / "meta_model.pkl"
+    predictor.save(model_path)
+
+    new_predictor = PricePredictor(db)
+    new_predictor.load(model_path)
+
+    assert new_predictor.metadata.version == predictor.metadata.version
+    assert new_predictor.metadata.sample_count == predictor.metadata.sample_count
+    assert new_predictor.metadata.score == predictor.metadata.score
+
+
+async def test_metadata_version_increments(predictor, db):
+    """再学習ごとにバージョンがインクリメントされる."""
+    await _seed_candidates(db, count=30)
+    await predictor.train(min_samples=10)
+    assert predictor.metadata.version == 1
+
+    await predictor.train(min_samples=10)
+    assert predictor.metadata.version == 2
+
+
+# --- Issue #016: 低品質モデル無効化 ---
+
+async def test_low_quality_model_disabled(predictor, db):
+    """R^2スコアが閾値未満の場合モデルが無効化される."""
+    await _seed_candidates(db, count=30)
+    # Very high threshold that no model can meet
+    score = await predictor.train(min_samples=10, min_quality_score=0.99)
+    assert predictor.is_trained is False
+    assert isinstance(score, float)
