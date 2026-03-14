@@ -10,12 +10,11 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from ec_hub.config import load_fee_rules, load_settings
-from ec_hub.db import Database
+from ec_hub.context import AppContext
 from ec_hub.exporters import export_csv, export_json
 from ec_hub.models import ListingCondition, SearchResult
-from ec_hub.modules.profit_tracker import ProfitTracker
 from ec_hub.scrapers.ebay import EbayScraper
+from ec_hub.usecases.profit_calc import ProfitCalcUseCase
 
 console = Console()
 
@@ -167,43 +166,36 @@ def calc(cost: int, price: float, weight: int, dest: str) -> None:
 
 
 async def _calc(cost: int, price: float, weight: int, dest: str) -> None:
-    settings = load_settings()
-    fee_rules = load_fee_rules()
-    async with Database(settings.get("database", {}).get("path", "db/ebay.db")) as db:
-        tracker = ProfitTracker(db, settings, fee_rules)
-        fx_rate = await tracker.get_fx_rate()
-        breakdown = tracker.calc_net_profit(
-            jpy_cost=cost,
-            ebay_price_usd=price,
-            weight_g=weight,
-            destination=dest,
-            fx_rate=fx_rate,
+    async with AppContext.create() as ctx:
+        uc = ProfitCalcUseCase(ctx)
+        breakdown = await uc.calculate(
+            cost_jpy=cost, ebay_price_usd=price, weight_g=weight, destination=dest,
         )
 
     table = Table(title="利益シミュレーション", show_lines=True)
     table.add_column("項目", style="bold")
     table.add_column("金額", justify="right")
 
-    table.add_row("eBay売価", f"${breakdown.ebay_price_usd:.2f}")
-    table.add_row("為替レート", f"¥{breakdown.fx_rate:.2f}/USD")
-    table.add_row("円換算売上", f"¥{breakdown.jpy_revenue:,}")
+    table.add_row("eBay売価", f"${breakdown['ebay_price_usd']:.2f}")
+    table.add_row("為替レート", f"¥{breakdown['fx_rate']:.2f}/USD")
+    table.add_row("円換算売上", f"¥{breakdown['jpy_revenue']:,}")
     table.add_row("─────", "─────")
-    table.add_row("仕入れ価格", f"¥{breakdown.jpy_cost:,}")
-    table.add_row("eBay手数料 (13.25%)", f"¥{breakdown.ebay_fee:,}")
-    table.add_row("Payoneer手数料 (2%)", f"¥{breakdown.payoneer_fee:,}")
-    table.add_row("国際送料", f"¥{breakdown.shipping_cost:,}")
-    table.add_row("梱包資材", f"¥{breakdown.packing_cost:,}")
-    table.add_row("為替バッファ (3%)", f"¥{breakdown.fx_buffer:,}")
+    table.add_row("仕入れ価格", f"¥{breakdown['jpy_cost']:,}")
+    table.add_row("eBay手数料 (13.25%)", f"¥{breakdown['ebay_fee']:,}")
+    table.add_row("Payoneer手数料 (2%)", f"¥{breakdown['payoneer_fee']:,}")
+    table.add_row("国際送料", f"¥{breakdown['shipping_cost']:,}")
+    table.add_row("梱包資材", f"¥{breakdown['packing_cost']:,}")
+    table.add_row("為替バッファ (3%)", f"¥{breakdown['fx_buffer']:,}")
     table.add_row("─────", "─────")
-    table.add_row("費用合計", f"¥{breakdown.total_cost:,}")
+    table.add_row("費用合計", f"¥{breakdown['total_cost']:,}")
 
-    profit_style = "green" if breakdown.net_profit > 0 else "red"
-    table.add_row(f"[{profit_style}]純利益[/]", f"[{profit_style}]¥{breakdown.net_profit:,}[/]")
-    table.add_row(f"[{profit_style}]利益率[/]", f"[{profit_style}]{breakdown.margin_rate:.1%}[/]")
+    profit_style = "green" if breakdown["net_profit"] > 0 else "red"
+    table.add_row(f"[{profit_style}]純利益[/]", f"[{profit_style}]¥{breakdown['net_profit']:,}[/]")
+    table.add_row(f"[{profit_style}]利益率[/]", f"[{profit_style}]{breakdown['margin_rate']:.1%}[/]")
 
     console.print(table)
 
-    if breakdown.margin_rate < 0.30:
+    if breakdown["margin_rate"] < 0.30:
         console.print("\n[yellow]利益率30%未満のため、自動出品対象外です。[/]")
     else:
         console.print("\n[green]利益率30%以上 - 出品候補として適格です。[/]")
@@ -226,18 +218,16 @@ def research(queries: tuple[str, ...], pages: int) -> None:
 
 
 async def _research(queries: list[str] | None, pages: int) -> None:
-    from ec_hub.modules.researcher import Researcher
+    from ec_hub.usecases.research import ResearchUseCase
 
-    settings = load_settings()
-    fee_rules = load_fee_rules()
-    async with Database(settings.get("database", {}).get("path", "db/ebay.db")) as db:
-        researcher = Researcher(db, settings, fee_rules)
+    async with AppContext.create() as ctx:
+        uc = ResearchUseCase(ctx)
         console.print("[bold blue]リサーチを開始...[/]")
-        count = await researcher.run(queries, pages=pages)
+        count = await uc.run(keywords=queries, pages=pages)
         console.print(f"\n[green]リサーチ完了: {count} 件の候補を登録しました。[/]")
 
         if count > 0:
-            rows = await db.get_candidates(status="pending", limit=count)
+            rows = await ctx.candidates.list(status="pending", limit=count)
             table = Table(title="新規候補", show_lines=True)
             table.add_column("ID", style="dim", width=5)
             table.add_column("商品名", max_width=35)
@@ -276,9 +266,8 @@ def candidates(status: str | None, limit: int) -> None:
 
 
 async def _candidates(status: str | None, limit: int) -> None:
-    settings = load_settings()
-    async with Database(settings.get("database", {}).get("path", "db/ebay.db")) as db:
-        rows = await db.get_candidates(status=status, limit=limit)
+    async with AppContext.create() as ctx:
+        rows = await ctx.candidates.list(status=status, limit=limit)
 
     if not rows:
         console.print("[yellow]候補がありません。[/]")
@@ -325,9 +314,8 @@ def orders(status: str | None, limit: int) -> None:
 
 
 async def _orders(status: str | None, limit: int) -> None:
-    settings = load_settings()
-    async with Database(settings.get("database", {}).get("path", "db/ebay.db")) as db:
-        rows = await db.get_orders(status=status, limit=limit)
+    async with AppContext.create() as ctx:
+        rows = await ctx.orders.list(status=status, limit=limit)
 
     if not rows:
         console.print("[yellow]注文がありません。[/]")
