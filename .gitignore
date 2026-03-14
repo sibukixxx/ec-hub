@@ -18,6 +18,12 @@ output/
 !config.example.json
 !frontend/package.json
 
+# ML models
+models/
+
+# Database
+db/
+
 # Frontend
 frontend/node_modules/
 frontend/dist/
