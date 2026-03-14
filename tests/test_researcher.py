@@ -466,8 +466,6 @@ async def test_run_creates_research_run(researcher, monkeypatch):
         ]
 
     monkeypatch.setattr(researcher, "search_ebay_sold", mock_search_ebay_sold)
-    # No source searchers configured → returns 0 but still creates run
-    # We need to add source searchers so the code path creates runs
     monkeypatch.setattr(researcher, "_create_source_searchers", lambda: [
         MockSourceSearcher([
             SourceProduct(

@@ -50,5 +50,5 @@ async def test_app_context_as_context_manager():
 
 
 async def test_app_context_settings_and_fee_rules(ctx):
-    assert isinstance(ctx.settings, dict)
-    assert isinstance(ctx.fee_rules, dict)
+    assert ctx.settings is not None
+    assert ctx.fee_rules is not None

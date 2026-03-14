@@ -23,21 +23,20 @@ class DashboardService:
 
     async def get_dashboard_summary(self) -> dict:
         """ダッシュボード用の集計データを取得する."""
-        candidate_counts = await self._ctx.db.count_candidates_by_status()
-        order_counts = await self._ctx.db.count_orders_by_status()
-        total_profit = await self._ctx.db.get_total_completed_profit()
+        db = self._ctx.db
+        total_profit = await db.get_total_completed_profit()
         fx_rate = await self._tracker.get_fx_rate()
 
         return {
             "candidates": {
-                "pending": candidate_counts.get("pending", 0),
-                "approved": candidate_counts.get("approved", 0),
-                "listed": candidate_counts.get("listed", 0),
+                "pending": await db.count_candidates_by_status("pending"),
+                "approved": await db.count_candidates_by_status("approved"),
+                "listed": await db.count_candidates_by_status("listed"),
             },
             "orders": {
-                "awaiting_purchase": order_counts.get("awaiting_purchase", 0),
-                "shipped": order_counts.get("shipped", 0),
-                "completed": order_counts.get("completed", 0),
+                "awaiting_purchase": await db.count_orders_by_status("awaiting_purchase"),
+                "shipped": await db.count_orders_by_status("shipped"),
+                "completed": await db.count_orders_by_status("completed"),
             },
             "recent_profit": total_profit,
             "fx_rate": fx_rate,

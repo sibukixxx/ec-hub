@@ -387,6 +387,7 @@ class Database:
             cursor = await self.db.execute("SELECT COUNT(*) FROM candidates")
         row = await cursor.fetchone()
         return row[0]
+
     async def update_candidate_status(self, candidate_id: int, status: str) -> None:
         await self.db.execute(
             "UPDATE candidates SET status = ?, updated_at = ? WHERE id = ?",
@@ -506,6 +507,7 @@ class Database:
         )
         row = await cursor.fetchone()
         return int(row["total"])
+
     async def update_order(self, order_id: int, **fields: object) -> None:
         if not fields:
             return

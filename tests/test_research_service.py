@@ -3,6 +3,7 @@
 import pytest
 
 from ec_hub.context import AppContext
+from ec_hub.db import Database
 from ec_hub.services.research_service import ResearchService
 
 
@@ -34,11 +35,9 @@ def test_fee_rules():
 
 @pytest.fixture
 async def ctx(test_settings, test_fee_rules):
-    ctx = await AppContext.create(
-        settings=test_settings,
-        fee_rules=test_fee_rules,
-        db_path=":memory:",
-    )
+    db = Database(":memory:")
+    await db.connect()
+    ctx = AppContext(settings=test_settings, fee_rules=test_fee_rules, db=db)
     yield ctx
     await ctx.close()
 
@@ -104,7 +103,6 @@ async def test_update_candidate_status(ctx):
     await svc.update_candidate_status(cid, "approved")
     result = await svc.get_candidate(cid)
     assert result["status"] == "approved"
-
 
 
 # --- research_runs ---
