@@ -28,3 +28,6 @@ db/
 frontend/node_modules/
 frontend/dist/
 package-lock.json
+!frontend/tsconfig.json
+!frontend/.oxlintrc.json
+!frontend/.oxfmtrc.json

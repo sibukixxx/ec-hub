@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'preact/hooks';
 import { getCurrentUrl, route } from 'preact-router';
+import { useState, useEffect } from 'preact/hooks';
 
 const links = [
   { href: '/', label: 'Dashboard' },
@@ -20,7 +20,7 @@ export function Sidebar() {
     return () => removeEventListener('popstate', handler);
   }, []);
 
-  const navigate = (href) => (e) => {
+  const navigate = (href: string) => (e: Event) => {
     e.preventDefault();
     route(href);
     setUrl(href);
