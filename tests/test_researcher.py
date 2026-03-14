@@ -114,6 +114,33 @@ def test_simplify_search_query_removes_noise():
     assert "Nendoroid" in result
 
 
+def test_simplify_search_query_preserves_brand_in_long_title():
+    """長いタイトルでもブランド名が6語制限で落ちない."""
+    result = simplify_search_query(
+        "Special Limited Collector Premium Deluxe Ultimate Sony WH-1000XM5 Headphones"
+    )
+    # Brand "Sony" is at word 7+ after noise removal, but should still be kept
+    assert "sony" in result.lower()
+
+
+def test_simplify_search_query_preserves_model_in_long_title():
+    """長いタイトルでも型番が6語制限で落ちない."""
+    result = simplify_search_query(
+        "Super Special Premium Collector Deluxe Ultimate Casio G-Shock GA-2100"
+    )
+    assert "ga-2100" in result.lower() or "ga2100" in result.lower()
+
+
+def test_simplify_search_query_brand_appears_early():
+    """ブランド名がクエリの先頭付近に配置される."""
+    result = simplify_search_query(
+        "Special Limited Premium Collector Deluxe Sony WH-1000XM5"
+    )
+    words = result.lower().split()
+    if "sony" in words:
+        assert words.index("sony") <= 1
+
+
 # --- find_source_price テスト ---
 
 

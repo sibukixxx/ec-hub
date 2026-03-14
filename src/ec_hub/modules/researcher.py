@@ -18,7 +18,13 @@ import logging
 
 from ec_hub.config import load_fee_rules, load_settings
 from ec_hub.db import Database
-from ec_hub.modules.matcher import DEFAULT_MATCH_THRESHOLD, calc_match_score, is_good_match
+from ec_hub.modules.matcher import (
+    DEFAULT_MATCH_THRESHOLD,
+    calc_match_score,
+    extract_brand,
+    extract_model_number,
+    is_good_match,
+)
 from ec_hub.modules.notifier import Notifier
 from ec_hub.modules.price_predictor import PricePredictor
 from ec_hub.modules.profit_tracker import ProfitTracker
@@ -168,6 +174,8 @@ class Researcher:
                     fx_rate=fx_rate_val,
                     ebay_category=ebay_category,
                     source_category=product.category,
+                    source_review_count=product.review_count,
+                    source_rating=product.rating,
                 )
                 if is_good_match(match_result, threshold) and match_result["score"] > best_score:
                     best_score = match_result["score"]
@@ -406,7 +414,7 @@ class Researcher:
 def simplify_search_query(title: str) -> str:
     """eBayの商品タイトルから検索クエリを生成する.
 
-    長いタイトルから不要な修飾語を除去し、
+    ブランド名と型番を優先的に残し、ノイズ語を除去する。
     日本ECサイトでの検索精度を上げる。
     """
     noise_words = {
@@ -414,9 +422,39 @@ def simplify_search_query(title: str) -> str:
         "brand", "sealed", "nib", "nip", "mint", "excellent",
         "free", "shipping", "fast", "ship", "from", "japan",
         "us", "seller", "lot", "set", "bundle",
+        "special", "limited", "collector", "premium", "deluxe",
+        "ultimate", "exclusive", "official", "original", "super",
     }
+
+    # Extract brand and model number for priority placement
+    brand = extract_brand(title)
+    model = extract_model_number(title)
+
     words = title.split()
     filtered = [w for w in words if w.lower().strip("!,.()-[]") not in noise_words]
 
-    # 最大6語に制限
-    return " ".join(filtered[:6])
+    # Build priority words (brand + model first)
+    priority: list[str] = []
+    if brand:
+        priority.append(brand.title() if brand.islower() else brand)
+    if model:
+        # Find the original-case version from the title
+        model_lower = model.lower()
+        original_model = next(
+            (w for w in words if model_lower in w.lower()),
+            model,
+        )
+        priority.append(original_model)
+
+    # Remove priority words from filtered to avoid duplication
+    remaining = []
+    priority_lower = {p.lower() for p in priority}
+    for w in filtered:
+        if w.lower() not in priority_lower and not any(w.lower() in p for p in priority_lower):
+            remaining.append(w)
+
+    # Combine: priority words first, then remaining, max 6 total
+    max_words = 6
+    result_words = priority + remaining[: max_words - len(priority)]
+
+    return " ".join(result_words)
