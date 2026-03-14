@@ -9,8 +9,9 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,26 +23,22 @@ from ec_hub.modules.profit_tracker import ProfitTracker
 
 logger = logging.getLogger(__name__)
 
-# グローバル DB インスタンス
-_db: Database | None = None
-_settings: dict = {}
-_fee_rules: dict = {}
-
 STATIC_DIR = Path(__file__).parent.parent.parent / "frontend" / "dist"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _db, _settings, _fee_rules
-    _settings = load_settings()
-    _fee_rules = load_fee_rules()
-    db_path = _settings.get("database", {}).get("path", "db/ebay.db")
-    _db = Database(db_path)
-    await _db.connect()
+    settings = load_settings()
+    fee_rules = load_fee_rules()
+    db_path = settings.get("database", {}).get("path", "db/ebay.db")
+    db = Database(db_path)
+    await db.connect()
+    app.state.db = db
+    app.state.settings = settings
+    app.state.fee_rules = fee_rules
     logger.info("API server started, DB connected")
     yield
-    if _db:
-        await _db.close()
+    await db.close()
 
 
 app = FastAPI(title="ec-hub API", version="0.1.0", lifespan=lifespan)
@@ -54,10 +51,22 @@ app.add_middleware(
 )
 
 
-def get_db() -> Database:
-    if _db is None:
+# --- 依存性注入 ---
+
+
+async def get_db() -> Database:
+    db = app.state.db
+    if db is None:
         raise HTTPException(status_code=503, detail="Database not ready")
-    return _db
+    return db
+
+
+async def get_settings() -> dict:
+    return app.state.settings
+
+
+async def get_fee_rules() -> dict:
+    return app.state.fee_rules
 
 
 # --- リクエスト/レスポンスモデル ---
@@ -83,9 +92,11 @@ class DashboardResponse(BaseModel):
 # --- ダッシュボード ---
 
 @app.get("/api/dashboard")
-async def get_dashboard() -> dict:
-    db = get_db()
-
+async def get_dashboard(
+    db: Annotated[Database, Depends(get_db)],
+    settings: Annotated[dict, Depends(get_settings)],
+    fee_rules: Annotated[dict, Depends(get_fee_rules)],
+) -> dict:
     candidates_pending = await db.get_candidates(status="pending", limit=1000)
     candidates_approved = await db.get_candidates(status="approved", limit=1000)
     candidates_listed = await db.get_candidates(status="listed", limit=1000)
@@ -96,7 +107,7 @@ async def get_dashboard() -> dict:
 
     total_profit = sum(o.get("net_profit_jpy", 0) or 0 for o in orders_completed)
 
-    tracker = ProfitTracker(db, _settings, _fee_rules)
+    tracker = ProfitTracker(db, settings, fee_rules)
     fx_rate = await tracker.get_fx_rate()
 
     return {
@@ -119,16 +130,18 @@ async def get_dashboard() -> dict:
 
 @app.get("/api/candidates")
 async def list_candidates(
+    db: Annotated[Database, Depends(get_db)],
     status: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
 ) -> list[dict]:
-    db = get_db()
     return await db.get_candidates(status=status, limit=limit)
 
 
 @app.get("/api/candidates/{candidate_id}")
-async def get_candidate(candidate_id: int) -> dict:
-    db = get_db()
+async def get_candidate(
+    candidate_id: int,
+    db: Annotated[Database, Depends(get_db)],
+) -> dict:
     rows = await db.get_candidates(limit=1000)
     target = next((c for c in rows if c["id"] == candidate_id), None)
     if not target:
@@ -137,8 +150,11 @@ async def get_candidate(candidate_id: int) -> dict:
 
 
 @app.patch("/api/candidates/{candidate_id}/status")
-async def update_candidate_status(candidate_id: int, body: CandidateStatusUpdate) -> dict:
-    db = get_db()
+async def update_candidate_status(
+    candidate_id: int,
+    body: CandidateStatusUpdate,
+    db: Annotated[Database, Depends(get_db)],
+) -> dict:
     valid = {"pending", "approved", "rejected", "listed"}
     if body.status not in valid:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid}")
@@ -150,16 +166,18 @@ async def update_candidate_status(candidate_id: int, body: CandidateStatusUpdate
 
 @app.get("/api/orders")
 async def list_orders(
+    db: Annotated[Database, Depends(get_db)],
     status: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
 ) -> list[dict]:
-    db = get_db()
     return await db.get_orders(status=status, limit=limit)
 
 
 @app.get("/api/orders/{order_id}")
-async def get_order(order_id: int) -> dict:
-    db = get_db()
+async def get_order(
+    order_id: int,
+    db: Annotated[Database, Depends(get_db)],
+) -> dict:
     rows = await db.get_orders(limit=1000)
     target = next((o for o in rows if o["id"] == order_id), None)
     if not target:
@@ -170,9 +188,13 @@ async def get_order(order_id: int) -> dict:
 # --- 利益計算 ---
 
 @app.post("/api/calc/profit")
-async def calc_profit(req: ProfitCalcRequest) -> dict:
-    db = get_db()
-    tracker = ProfitTracker(db, _settings, _fee_rules)
+async def calc_profit(
+    req: ProfitCalcRequest,
+    db: Annotated[Database, Depends(get_db)],
+    settings: Annotated[dict, Depends(get_settings)],
+    fee_rules: Annotated[dict, Depends(get_fee_rules)],
+) -> dict:
+    tracker = ProfitTracker(db, settings, fee_rules)
     fx_rate = await tracker.get_fx_rate()
     breakdown = tracker.calc_net_profit(
         jpy_cost=req.cost_jpy,

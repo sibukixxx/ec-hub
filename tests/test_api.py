@@ -3,7 +3,7 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-import ec_hub.api as api_module
+from ec_hub.api import app, get_db, get_fee_rules, get_settings
 from ec_hub.db import Database
 
 
@@ -43,13 +43,14 @@ def fee_rules():
 
 @pytest.fixture
 async def client(db, settings, fee_rules):
-    """FastAPI テストクライアント."""
-    api_module._db = db
-    api_module._settings = settings
-    api_module._fee_rules = fee_rules
-    transport = ASGITransport(app=api_module.app)
+    """FastAPI テストクライアント (dependency_overrides 方式)."""
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_fee_rules] = lambda: fee_rules
+    transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
+    app.dependency_overrides.clear()
 
 
 async def test_dashboard_empty(client):
