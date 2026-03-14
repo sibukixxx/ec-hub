@@ -1,28 +1,21 @@
-# Issue #007: eBay スクレイパーの耐障害性向上 - TODO
+# Issue #008: マッチングエンジン改善 - TODO
 
-## フェーズ1: セレクタの外部設定化
+## フェーズ1: レビュー/在庫情報のスコア反映
 
-- [x] [RED] SelectorConfig モデルとローダーのテスト作成
-- [x] [GREEN] SelectorConfig モデルとローダーの実装
-- [x] [REFACTOR] SelectorConfig のリファクタリング
-- [x] [RED] EbayScraper のセレクタ外部設定対応テスト作成
-- [x] [GREEN] EbayScraper のセレクタ外部設定対応実装
-- [x] [REFACTOR] EbayScraper のリファクタリング
+- [x] [RED] calc_match_score にレビュー/在庫スコアのテスト作成
+- [x] [GREEN] calc_match_score にレビュー/在庫スコアの実装
+- [x] [REFACTOR] レビュー/在庫スコアのリファクタリング
 
-## フェーズ2: サーキットブレーカーパターンの導入
+## フェーズ2: simplify_search_query の高度化
 
-- [x] [RED] CircuitBreaker のテスト作成
-- [x] [GREEN] CircuitBreaker の実装
-- [x] [REFACTOR] CircuitBreaker のリファクタリング
-- [x] [RED] EbayScraper へのサーキットブレーカー統合テスト作成
-- [x] [GREEN] EbayScraper へのサーキットブレーカー統合実装
-- [x] [REFACTOR] サーキットブレーカー統合のリファクタリング
+- [x] [RED] simplify_search_query のブランド+型番優先テスト作成
+- [x] [GREEN] simplify_search_query の高度化実装
+- [x] [REFACTOR] simplify_search_query のリファクタリング
 
-## フェーズ3: パース失敗アラート通知 + 妥当性チェック
+## フェーズ3: フロントエンド - Candidates 画面にマッチ情報表示
 
-- [x] [RED] ScrapeValidator のテスト作成
-- [x] [GREEN] ScrapeValidator の実装
-- [x] [REFACTOR] ScrapeValidator のリファクタリング
-- [x] [RED] EbayScraper への通知・バリデーション統合テスト作成
-- [x] [GREEN] EbayScraper への通知・バリデーション統合実装
-- [x] [REFACTOR] 統合のリファクタリング
+- [x] [GREEN] Candidates.jsx に match_score / match_reason カラム追加
+
+## フェーズ4: フロントエンド - Compare 画面にマッチ情報表示
+
+- [x] [GREEN] Compare.jsx にマッチ根拠表示追加
