@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from ec_hub.modules.notifier import Notifier, Severity
+from ec_hub.modules.notifier import Notifier
 
 
 @pytest.fixture
@@ -20,12 +20,7 @@ def empty_settings():
 
 @pytest.fixture
 def notifier(settings):
-    return Notifier(settings=settings, min_severity=Severity.INFO)
-
-
-@pytest.fixture
-def warning_only_notifier(settings):
-    return Notifier(settings=settings, min_severity=Severity.WARNING)
+    return Notifier(settings=settings)
 
 
 @pytest.fixture
@@ -93,71 +88,6 @@ async def test_send_failure(notifier):
         result = await notifier.send("test message")
 
     assert result is False
-
-
-# --- severity フィルタテスト ---
-
-
-async def test_severity_filter_blocks_low_severity(warning_only_notifier):
-    """min_severity=WARNING の場合、INFO は送信されない."""
-    mock_client = _mock_httpx_client()
-
-    with patch("ec_hub.modules.notifier.httpx.AsyncClient", return_value=mock_client):
-        result = await warning_only_notifier.send("info msg", severity=Severity.INFO)
-
-    assert result is False
-    mock_client.post.assert_not_called()
-
-
-async def test_severity_filter_allows_equal_severity(warning_only_notifier):
-    """min_severity=WARNING の場合、WARNING は送信される."""
-    mock_client = _mock_httpx_client()
-
-    with patch("ec_hub.modules.notifier.httpx.AsyncClient", return_value=mock_client):
-        result = await warning_only_notifier.send("warn msg", severity=Severity.WARNING)
-
-    assert result is True
-
-
-async def test_severity_filter_allows_higher_severity(warning_only_notifier):
-    """min_severity=WARNING の場合、CRITICAL は送信される."""
-    mock_client = _mock_httpx_client()
-
-    with patch("ec_hub.modules.notifier.httpx.AsyncClient", return_value=mock_client):
-        result = await warning_only_notifier.send("critical msg", severity=Severity.CRITICAL)
-
-    assert result is True
-
-
-# --- dedupe テスト ---
-
-
-async def test_dedupe_blocks_duplicate_within_window(settings):
-    """同じメッセージを短時間に2回送ると、2回目はブロックされる."""
-    notifier = Notifier(settings=settings, dedupe_window=3600, min_severity=Severity.INFO)
-    mock_client = _mock_httpx_client()
-
-    with patch("ec_hub.modules.notifier.httpx.AsyncClient", return_value=mock_client):
-        result1 = await notifier.send("duplicate msg")
-        result2 = await notifier.send("duplicate msg")
-
-    assert result1 is True
-    assert result2 is False
-    assert mock_client.post.call_count == 1
-
-
-async def test_dedupe_allows_different_messages(settings):
-    """異なるメッセージは重複抑止されない."""
-    notifier = Notifier(settings=settings, dedupe_window=3600, min_severity=Severity.INFO)
-    mock_client = _mock_httpx_client()
-
-    with patch("ec_hub.modules.notifier.httpx.AsyncClient", return_value=mock_client):
-        result1 = await notifier.send("message A")
-        result2 = await notifier.send("message B")
-
-    assert result1 is True
-    assert result2 is True
-    assert mock_client.post.call_count == 2
 
 
 # --- 各通知メソッドテスト ---
@@ -267,52 +197,3 @@ async def test_notify_exchange_rate_warning(notifier):
     sent_text = mock_client.post.call_args[1]["json"]["messages"][0]["text"]
     assert "為替レート警告" in sent_text
     assert "Using static fallback 150.00" in sent_text
-
-
-async def test_notify_job_failure(notifier):
-    """notify_job_failure のメッセージにジョブ名とエラーが含まれる."""
-    mock_client = _mock_httpx_client()
-
-    with patch("ec_hub.modules.notifier.httpx.AsyncClient", return_value=mock_client):
-        result = await notifier.notify_job_failure("researcher", "Connection timeout")
-
-    assert result is True
-    sent_text = mock_client.post.call_args[1]["json"]["messages"][0]["text"]
-    assert "researcher" in sent_text
-    assert "Connection timeout" in sent_text
-
-
-async def test_notify_service_degraded(notifier):
-    """notify_service_degraded のメッセージにサービス名とエラーが含まれる."""
-    mock_client = _mock_httpx_client()
-
-    with patch("ec_hub.modules.notifier.httpx.AsyncClient", return_value=mock_client):
-        result = await notifier.notify_service_degraded("ebay", "API key expired")
-
-    assert result is True
-    sent_text = mock_client.post.call_args[1]["json"]["messages"][0]["text"]
-    assert "ebay" in sent_text
-    assert "API key expired" in sent_text
-
-
-# --- notify_order は CRITICAL なので severity=WARNING でもブロックされない ---
-
-
-async def test_notify_order_with_warning_min_severity(warning_only_notifier):
-    """notify_order は CRITICAL なので WARNING フィルタでも送信される."""
-    mock_client = _mock_httpx_client()
-
-    with patch("ec_hub.modules.notifier.httpx.AsyncClient", return_value=mock_client):
-        result = await warning_only_notifier.notify_order("ORD-999", 50.0)
-
-    assert result is True
-
-
-async def test_notify_candidates_blocked_by_warning_filter(warning_only_notifier):
-    """notify_candidates は INFO なので WARNING フィルタでブロックされる."""
-    mock_client = _mock_httpx_client()
-
-    with patch("ec_hub.modules.notifier.httpx.AsyncClient", return_value=mock_client):
-        result = await warning_only_notifier.notify_candidates(3)
-
-    assert result is False
