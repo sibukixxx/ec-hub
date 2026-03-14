@@ -80,6 +80,11 @@ class CandidateStatusUpdate(BaseModel):
     status: str
 
 
+class BulkCandidateStatusUpdate(BaseModel):
+    ids: list[int]
+    status: str
+
+
 class PricePredictRequest(BaseModel):
     cost_jpy: int
     weight_g: int = 500
@@ -98,6 +103,10 @@ class ProfitCalcRequest(BaseModel):
     ebay_price_usd: float
     weight_g: int = 500
     destination: str = "US"
+
+
+class ListingRunRequest(BaseModel):
+    candidate_ids: list[int] | None = None
 
 
 class ResearchRunRequest(BaseModel):
@@ -166,6 +175,23 @@ async def update_candidate_status(
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid}")
     await ctx.candidates.update_status(candidate_id, body.status)
     return {"id": candidate_id, "status": body.status}
+
+
+@app.post("/api/candidates/bulk-status")
+async def bulk_update_candidate_status(
+    body: BulkCandidateStatusUpdate,
+    ctx: Annotated[AppContext, Depends(get_ctx)],
+) -> dict:
+    """複数候補のステータスを一括更新する."""
+    valid = {"pending", "approved", "rejected", "listed"}
+    if body.status not in valid:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid}")
+    if not body.ids:
+        raise HTTPException(status_code=400, detail="ids must not be empty")
+    if len(body.ids) > 100:
+        raise HTTPException(status_code=400, detail="Maximum 100 candidates per bulk operation")
+    updated = await ctx.candidates.bulk_update_status(body.ids, body.status)
+    return {"updated_count": updated, "status": body.status}
 
 
 # --- 注文管理 ---
@@ -373,11 +399,26 @@ async def research_run(
 @app.post("/api/listing/run")
 async def listing_run(
     ctx: Annotated[AppContext, Depends(get_ctx)],
+    body: ListingRunRequest | None = None,
 ) -> dict:
-    """承認済み候補をeBayに出品する."""
+    """承認済み候補をeBayに出品する.候補IDを指定すると選択的に出品する."""
     uc = ListingUseCase(ctx)
-    listed_count = await uc.run()
+    candidate_ids = body.candidate_ids if body else None
+    listed_count = await uc.run(candidate_ids=candidate_ids)
     return {"listed_count": listed_count, "status": "completed"}
+
+
+@app.get("/api/listing/preview/{candidate_id}")
+async def listing_preview(
+    candidate_id: int,
+    ctx: Annotated[AppContext, Depends(get_ctx)],
+) -> dict:
+    """出品プレビュー情報を取得する（出品はしない）."""
+    uc = ListingUseCase(ctx)
+    result = await uc.preview(candidate_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return result
 
 
 @app.get("/api/listing/limits")
@@ -430,11 +471,12 @@ async def update_order_status(
 async def list_messages(
     ctx: Annotated[AppContext, Depends(get_ctx)],
     buyer: str | None = Query(None),
+    category: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
 ) -> list[dict]:
     """メッセージ一覧を取得する."""
     uc = MessageUseCase(ctx)
-    return await uc.list_messages(buyer_username=buyer, limit=limit)
+    return await uc.list_messages(buyer_username=buyer, category=category, limit=limit)
 
 
 @app.post("/api/messages/{message_id}/reply")
