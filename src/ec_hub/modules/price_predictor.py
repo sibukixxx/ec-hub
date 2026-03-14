@@ -17,6 +17,7 @@ import logging
 import pickle
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 from pydantic import BaseModel
@@ -39,25 +40,23 @@ KNOWN_CATEGORIES = [
     "Home & Garden", "Jewelry & Watches", "Other",
 ]
 
-# Trusted statuses for training data
-TRUSTED_STATUSES = {"approved", "listed", "completed"}
-
 FEATURE_NAMES = [
     "cost_jpy", "weight_g", "source_site", "category",
     "ebay_sold_count_30d", "price_density",
 ]
 
-DEFAULT_MIN_QUALITY_SCORE: float | None = None
+# Trusted statuses for training data
+TRUSTED_STATUSES = {"approved", "listed", "completed"}
 
 
 class ModelMetadata(BaseModel):
     """モデルのメタデータ."""
 
-    version: int
-    trained_at: str
-    sample_count: int
-    score: float
-    feature_names: list[str]
+    version: int = 0
+    trained_at: datetime | None = None
+    sample_count: int = 0
+    score: float = 0.0
+    feature_names: list[str] = FEATURE_NAMES
 
 
 class PricePrediction(BaseModel):
@@ -68,34 +67,32 @@ class PricePrediction(BaseModel):
     predicted_profit_jpy: int
     predicted_margin_rate: float
     model_score: float  # R² score from training
-    prediction_source: str  # "ml" or "rule_based"
+    prediction_source: Literal["ml", "rule_based"] = "rule_based"
 
 
 class PricePredictor:
     """eBay販売価格の予測モデル."""
 
-    def __init__(self, db: Database, min_quality_score: float | None = DEFAULT_MIN_QUALITY_SCORE) -> None:
+    def __init__(self, db: Database) -> None:
         self._db = db
         self._model: GradientBoostingRegressor | None = None
         self._source_encoder = LabelEncoder()
         self._category_encoder = LabelEncoder()
         self._model_score: float = 0.0
         self._is_trained: bool = False
-        self._metadata: ModelMetadata | None = None
-        self._min_quality_score = min_quality_score
-        self._version_counter: int = 0
+        self._metadata = ModelMetadata()
 
         # Pre-fit encoders with known values
         self._source_encoder.fit(KNOWN_SOURCES)
         self._category_encoder.fit(KNOWN_CATEGORIES)
 
     @property
-    def metadata(self) -> ModelMetadata | None:
-        return self._metadata
-
-    @property
     def is_trained(self) -> bool:
         return self._is_trained
+
+    @property
+    def metadata(self) -> ModelMetadata:
+        return self._metadata
 
     def _encode_source(self, source: str) -> int:
         if source in self._source_encoder.classes_:
@@ -125,10 +122,16 @@ class PricePredictor:
             cost_jpy / max(weight_g, 1),  # price density (JPY/g)
         ]).reshape(1, -1)
 
-    async def train(self, min_samples: int = 10) -> float:
+    async def train(
+        self,
+        min_samples: int = 10,
+        min_quality_score: float = -1.0,
+    ) -> float:
         """候補データからモデルを学習する.
 
-        学習データは approved/listed/completed の信頼できる状態のみ使用。
+        Args:
+            min_samples: 学習に必要な最小サンプル数
+            min_quality_score: モデルを有効とする最小R²スコア閾値
 
         Returns:
             R² score (cross-validation mean)
@@ -185,13 +188,14 @@ class PricePredictor:
         else:
             self._model_score = 0.0
 
-        # Auto-disable low-quality models
-        if self._min_quality_score is not None and self._model_score < self._min_quality_score:
+        # Check quality threshold
+        if self._model_score < min_quality_score:
             logger.warning(
-                "モデル品質が閾値未満: R²=%.3f < %.3f。無効化。",
-                self._model_score, self._min_quality_score,
+                "モデル品質不足: R²=%.3f (閾値%.3f)。モデル無効化。",
+                self._model_score, min_quality_score,
             )
             self._is_trained = False
+            self._model = None
             return self._model_score
 
         # Train on full dataset
@@ -199,10 +203,9 @@ class PricePredictor:
         self._is_trained = True
 
         # Update metadata
-        self._version_counter += 1
         self._metadata = ModelMetadata(
-            version=self._version_counter,
-            trained_at=datetime.now(timezone.utc).isoformat(),
+            version=self._metadata.version + 1,
+            trained_at=datetime.now(timezone.utc),
             sample_count=len(training_data),
             score=self._model_score,
             feature_names=FEATURE_NAMES,
@@ -210,7 +213,7 @@ class PricePredictor:
 
         logger.info(
             "価格予測モデル学習完了: v%d, %d件, R²=%.3f",
-            self._version_counter, len(training_data), self._model_score,
+            self._metadata.version, len(training_data), self._model_score,
         )
         return self._model_score
 
@@ -233,7 +236,7 @@ class PricePredictor:
                 ebay_sold_count_30d=ebay_sold_count_30d,
             )
             predicted_usd = float(max(self._model.predict(features)[0], 0.01))
-            prediction_source = "ml"
+            prediction_source: Literal["ml", "rule_based"] = "ml"
         else:
             # Fallback: rule-based estimation (cost * markup / fx_rate)
             predicted_usd = self._rule_based_estimate(cost_jpy, fx_rate)
@@ -300,13 +303,12 @@ class PricePredictor:
             "category_encoder": self._category_encoder,
             "model_score": self._model_score,
             "is_trained": self._is_trained,
-            "metadata": self._metadata.model_dump() if self._metadata else None,
-            "version_counter": self._version_counter,
+            "metadata": self._metadata.model_dump(),
         }
         with open(save_path, "wb") as f:
             pickle.dump(data, f)  # noqa: S301
 
-        logger.info("モデル保存: %s", save_path)
+        logger.info("モデル保存: %s (v%d)", save_path, self._metadata.version)
 
     def load(self, path: str | Path | None = None) -> bool:
         """保存済みモデルを読み込む.
@@ -327,10 +329,9 @@ class PricePredictor:
             self._category_encoder = data["category_encoder"]
             self._model_score = data["model_score"]
             self._is_trained = data["is_trained"]
-            if data.get("metadata"):
-                self._metadata = ModelMetadata(**data["metadata"])
-            self._version_counter = data.get("version_counter", 0)
-            logger.info("モデル読込: %s (R²=%.3f)", load_path, self._model_score)
+            if "metadata" in data:
+                self._metadata = ModelMetadata.model_validate(data["metadata"])
+            logger.info("モデル読込: %s (v%d, R²=%.3f)", load_path, self._metadata.version, self._model_score)
             return True
         except Exception as e:
             logger.error("モデル読込失敗: %s", e)

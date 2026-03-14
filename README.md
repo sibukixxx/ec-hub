@@ -4,6 +4,33 @@ eBay輸出転売 自動化システム。リサーチ・出品・受注管理・
 
 ## セットアップ
 
+### 前提ツールのインストール
+
+#### uv (Python パッケージマネージャ)
+
+```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Homebrew (macOS)
+brew install uv
+```
+
+#### pnpm (Node.js パッケージマネージャ)
+
+```bash
+# corepack 経由 (推奨)
+corepack enable && corepack prepare pnpm@latest --activate
+
+# または npm 経由
+npm install -g pnpm
+```
+
+### ローカルセットアップ
+
 ```bash
 # バックエンド
 uv sync
@@ -12,6 +39,32 @@ cp config/settings.yaml config/settings.local.yaml  # API キーを設定
 # フロントエンド
 cd frontend && pnpm install
 ```
+
+### Docker セットアップ
+
+Docker を使えばツールの個別インストールは不要。
+
+```bash
+# 全サービス起動 (バックエンド + フロントエンド)
+docker compose up
+
+# バックグラウンド起動
+docker compose up -d
+
+# バックエンドのみ
+docker compose up backend
+
+# リビルド
+docker compose up --build
+
+# テスト実行
+docker compose run --rm backend uv run pytest
+
+# リンター実行
+docker compose run --rm backend uv run ruff check src/ tests/
+```
+
+`config/` と `db/` はホストからマウントされるため、設定やデータはローカルに永続化される。
 
 ## 使い方
 
