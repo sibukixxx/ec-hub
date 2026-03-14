@@ -5,20 +5,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from ec_hub.api import app, get_db, get_fee_rules, get_settings
-from ec_hub.db import Database
+from ec_hub.api import app, get_ctx
+from ec_hub.context import AppContext
 
 
 @pytest.fixture
-async def db():
-    database = Database(":memory:")
-    await database.connect()
-    yield database
-    await database.close()
-
-
-@pytest.fixture
-def settings():
+def test_settings():
     return {
         "exchange_rate": {"fallback_rate": 150.0},
         "database": {"path": ":memory:"},
@@ -27,7 +19,7 @@ def settings():
 
 
 @pytest.fixture
-def fee_rules():
+def test_fee_rules():
     return {
         "ebay_fees": {"default_rate": 0.1325},
         "payoneer": {"rate": 0.02},
@@ -44,11 +36,20 @@ def fee_rules():
 
 
 @pytest.fixture
-async def client(db, settings, fee_rules):
+async def ctx(test_settings, test_fee_rules):
+    ctx = await AppContext.create(
+        settings=test_settings,
+        fee_rules=test_fee_rules,
+        db_path=":memory:",
+    )
+    yield ctx
+    await ctx.close()
+
+
+@pytest.fixture
+async def client(ctx):
     """FastAPI テストクライアント (dependency_overrides 方式)."""
-    app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[get_settings] = lambda: settings
-    app.dependency_overrides[get_fee_rules] = lambda: fee_rules
+    app.dependency_overrides[get_ctx] = lambda: ctx
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
@@ -71,8 +72,8 @@ async def test_candidates_empty(client):
     assert resp.json() == []
 
 
-async def test_candidates_crud(client, db):
-    cid = await db.add_candidate(
+async def test_candidates_crud(client, ctx):
+    cid = await ctx.db.add_candidate(
         item_code="B09TEST",
         source_site="amazon",
         title_jp="テスト商品",
@@ -114,8 +115,8 @@ async def test_candidates_crud(client, db):
     assert len(resp.json()) == 1
 
 
-async def test_candidates_invalid_status(client, db):
-    cid = await db.add_candidate(
+async def test_candidates_invalid_status(client, ctx):
+    cid = await ctx.db.add_candidate(
         item_code="B09X",
         source_site="amazon",
         title_jp="test",
@@ -143,8 +144,8 @@ async def test_orders_empty(client):
     assert resp.json() == []
 
 
-async def test_orders_list(client, db):
-    await db.add_order(
+async def test_orders_list(client, ctx):
+    await ctx.db.add_order(
         ebay_order_id="12-34567-89012",
         buyer_username="buyer1",
         sale_price_usd=80.0,
@@ -177,19 +178,19 @@ async def test_calc_profit(client):
     assert data["jpy_revenue"] > 0
 
 
-async def test_dashboard_with_data(client, db):
+async def test_dashboard_with_data(client, ctx):
     """データがある場合のダッシュボード."""
-    await db.add_candidate(
+    await ctx.db.add_candidate(
         item_code="C1", source_site="amazon", title_jp="a",
         title_en=None, cost_jpy=1000, ebay_price_usd=30.0,
         net_profit_jpy=1000, margin_rate=1.0,
     )
-    oid = await db.add_order(
+    oid = await ctx.db.add_order(
         ebay_order_id="DASH-001",
         buyer_username="b",
         sale_price_usd=50.0,
     )
-    await db.update_order(oid, status="completed", net_profit_jpy=3000)
+    await ctx.db.update_order(oid, status="completed", net_profit_jpy=3000)
 
     resp = await client.get("/api/dashboard")
     data = resp.json()
