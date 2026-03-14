@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -23,13 +23,13 @@ from ec_hub.modules.price_predictor import PricePredictor
 from ec_hub.modules.profit_tracker import ProfitTracker
 from ec_hub.scheduler import Scheduler
 from ec_hub.scrapers.ebay import EbayScraper
+from ec_hub.services.research_service import ResearchService
 from ec_hub.usecases.dashboard import DashboardUseCase
 from ec_hub.usecases.export import ExportUseCase
 from ec_hub.usecases.listing import ListingUseCase
 from ec_hub.usecases.message import MessageUseCase
 from ec_hub.usecases.order import OrderUseCase
 from ec_hub.usecases.profit_calc import ProfitCalcUseCase
-from ec_hub.usecases.research import ResearchUseCase
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ STATIC_DIR = Path(__file__).parent.parent.parent / "frontend" / "dist"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    ctx = AppContext.create()
+    ctx = AppContext.create(validate_services=True)
     await ctx.connect()
     app.state.ctx = ctx
 
@@ -326,11 +326,18 @@ async def get_research_run(
 async def research_run(
     req: ResearchRunRequest,
     ctx: Annotated[AppContext, Depends(get_ctx)],
+    background_tasks: BackgroundTasks,
 ) -> dict:
-    """リサーチを手動実行する."""
-    uc = ResearchUseCase(ctx)
-    registered = await uc.run(keywords=req.keywords, pages=req.pages)
-    return {"registered": registered, "status": "completed"}
+    """リサーチを非同期で実行する.
+
+    即座に run_id を返し、バックグラウンドでリサーチを実行する。
+    進捗は GET /api/research/runs/{run_id} で確認可能
+    (completed_at が NULL なら実行中)。
+    """
+    svc = ResearchService(ctx)
+    run_id = await svc.start_research(keywords=req.keywords, pages=req.pages)
+    background_tasks.add_task(svc.execute_research, run_id, req.keywords, req.pages)
+    return {"run_id": run_id, "status": "running"}
 
 
 # --- 出品 ---

@@ -201,10 +201,11 @@ async def test_dashboard_with_data(client, ctx):
 # --- リサーチ API ---
 
 
-@patch("ec_hub.usecases.research.ResearchUseCase.run", new_callable=AsyncMock)
-async def test_research_run(mock_run_research, client):
-    """POST /api/research/run returns registered count."""
-    mock_run_research.return_value = 3
+@patch("ec_hub.services.research_service.ResearchService.execute_research", new_callable=AsyncMock)
+@patch("ec_hub.services.research_service.ResearchService.start_research", new_callable=AsyncMock)
+async def test_research_run(mock_start, mock_execute, client):
+    """POST /api/research/run returns run_id and status running."""
+    mock_start.return_value = 42
 
     resp = await client.post("/api/research/run", json={
         "keywords": ["test keyword"],
@@ -212,17 +213,21 @@ async def test_research_run(mock_run_research, client):
     })
     assert resp.status_code == 200
     data = resp.json()
-    assert data["registered"] == 3
-    assert data["status"] == "completed"
+    assert data["run_id"] == 42
+    assert data["status"] == "running"
+    mock_start.assert_called_once()
 
 
-@patch("ec_hub.usecases.research.ResearchUseCase.run", new_callable=AsyncMock)
-async def test_research_run_default_keywords(mock_run_research, client):
+@patch("ec_hub.services.research_service.ResearchService.execute_research", new_callable=AsyncMock)
+@patch("ec_hub.services.research_service.ResearchService.start_research", new_callable=AsyncMock)
+async def test_research_run_default_keywords(mock_start, mock_execute, client):
     """POST /api/research/run with no body uses defaults."""
-    mock_run_research.return_value = 0
+    mock_start.return_value = 1
 
     resp = await client.post("/api/research/run", json={})
     assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "running"
 
 
 # --- 出品 API ---
