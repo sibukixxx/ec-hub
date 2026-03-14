@@ -3,7 +3,7 @@
 import pytest
 
 from ec_hub.db import Database
-from ec_hub.modules.lister import Lister, LISTING_DESCRIPTION_TEMPLATE
+from ec_hub.modules.lister import Lister
 
 
 @pytest.fixture

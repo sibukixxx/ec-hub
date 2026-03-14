@@ -14,7 +14,6 @@ from ec_hub.config import load_fee_rules, load_settings
 from ec_hub.db import Database
 from ec_hub.exporters import export_csv, export_json
 from ec_hub.models import ListingCondition, SearchResult
-from ec_hub.modules.notifier import Notifier
 from ec_hub.modules.profit_tracker import ProfitTracker
 from ec_hub.scrapers.ebay import EbayScraper
 
