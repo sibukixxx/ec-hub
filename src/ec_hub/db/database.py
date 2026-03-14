@@ -448,6 +448,18 @@ class Database:
         )
         await self.db.commit()
 
+    async def bulk_update_candidate_status(self, candidate_ids: list[int], status: str) -> int:
+        if not candidate_ids:
+            return 0
+        now = datetime.utcnow().isoformat()
+        placeholders = ",".join("?" for _ in candidate_ids)
+        await self.db.execute(
+            f"UPDATE candidates SET status = ?, updated_at = ? WHERE id IN ({placeholders})",  # noqa: S608
+            (status, now, *candidate_ids),
+        )
+        await self.db.commit()
+        return len(candidate_ids)
+
     # --- Listings ---
 
     async def add_listing(
@@ -749,48 +761,39 @@ class Database:
         return cursor.lastrowid  # type: ignore[return-value]
 
     async def get_messages(
-        self, buyer_username: str | None = None, limit: int = 50
+        self,
+        buyer_username: str | None = None,
+        category: str | None = None,
+        limit: int = 50,
     ) -> list[dict]:
+        base_query = """SELECT
+                    m.*,
+                    o.ebay_order_id AS order_ebay_order_id,
+                    l.sku AS listing_sku,
+                    l.offer_id AS listing_offer_id,
+                    l.listing_id AS listing_external_id,
+                    l.status AS listing_status,
+                    c.item_code AS candidate_item_code,
+                    c.title_jp AS candidate_title_jp,
+                    c.title_en AS candidate_title_en,
+                    c.status AS candidate_status
+                FROM messages m
+                LEFT JOIN orders o ON m.order_id = o.id
+                LEFT JOIN listings l ON m.listing_id = l.id
+                LEFT JOIN candidates c ON m.candidate_id = c.id"""
+        conditions: list[str] = []
+        params: list[object] = []
         if buyer_username:
-            cursor = await self.db.execute(
-                """SELECT
-                    m.*,
-                    o.ebay_order_id AS order_ebay_order_id,
-                    l.sku AS listing_sku,
-                    l.offer_id AS listing_offer_id,
-                    l.listing_id AS listing_external_id,
-                    l.status AS listing_status,
-                    c.item_code AS candidate_item_code,
-                    c.title_jp AS candidate_title_jp,
-                    c.title_en AS candidate_title_en,
-                    c.status AS candidate_status
-                FROM messages m
-                LEFT JOIN orders o ON m.order_id = o.id
-                LEFT JOIN listings l ON m.listing_id = l.id
-                LEFT JOIN candidates c ON m.candidate_id = c.id
-                WHERE m.buyer_username = ? ORDER BY m.created_at DESC LIMIT ?""",
-                (buyer_username, limit),
-            )
-        else:
-            cursor = await self.db.execute(
-                """SELECT
-                    m.*,
-                    o.ebay_order_id AS order_ebay_order_id,
-                    l.sku AS listing_sku,
-                    l.offer_id AS listing_offer_id,
-                    l.listing_id AS listing_external_id,
-                    l.status AS listing_status,
-                    c.item_code AS candidate_item_code,
-                    c.title_jp AS candidate_title_jp,
-                    c.title_en AS candidate_title_en,
-                    c.status AS candidate_status
-                FROM messages m
-                LEFT JOIN orders o ON m.order_id = o.id
-                LEFT JOIN listings l ON m.listing_id = l.id
-                LEFT JOIN candidates c ON m.candidate_id = c.id
-                ORDER BY m.created_at DESC LIMIT ?""",
-                (limit,),
-            )
+            conditions.append("m.buyer_username = ?")
+            params.append(buyer_username)
+        if category:
+            conditions.append("m.category = ?")
+            params.append(category)
+        if conditions:
+            base_query += " WHERE " + " AND ".join(conditions)
+        base_query += " ORDER BY m.created_at DESC LIMIT ?"
+        params.append(limit)
+        cursor = await self.db.execute(base_query, tuple(params))
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 

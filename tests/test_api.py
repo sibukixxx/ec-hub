@@ -114,6 +114,58 @@ async def test_candidates_crud(client, ctx):
     assert len(resp.json()) == 1
 
 
+async def test_candidates_bulk_status_update(client, ctx):
+    """POST /api/candidates/bulk-status updates multiple candidates."""
+    cid1 = await ctx.db.add_candidate(
+        item_code="BULK01", source_site="amazon", title_jp="バルク1",
+        title_en=None, cost_jpy=1000, ebay_price_usd=30.0,
+        net_profit_jpy=1000, margin_rate=1.0,
+    )
+    cid2 = await ctx.db.add_candidate(
+        item_code="BULK02", source_site="amazon", title_jp="バルク2",
+        title_en=None, cost_jpy=2000, ebay_price_usd=50.0,
+        net_profit_jpy=2000, margin_rate=1.0,
+    )
+    _cid3 = await ctx.db.add_candidate(
+        item_code="BULK03", source_site="amazon", title_jp="バルク3",
+        title_en=None, cost_jpy=3000, ebay_price_usd=70.0,
+        net_profit_jpy=3000, margin_rate=1.0,
+    )
+
+    resp = await client.post("/api/candidates/bulk-status", json={
+        "ids": [cid1, cid2],
+        "status": "approved",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["updated_count"] == 2
+    assert data["status"] == "approved"
+
+    # Verify: 2 approved, 1 still pending
+    resp = await client.get("/api/candidates?status=approved")
+    assert len(resp.json()) == 2
+    resp = await client.get("/api/candidates?status=pending")
+    assert len(resp.json()) == 1
+
+
+async def test_candidates_bulk_status_invalid(client):
+    """POST /api/candidates/bulk-status rejects invalid status."""
+    resp = await client.post("/api/candidates/bulk-status", json={
+        "ids": [1, 2],
+        "status": "invalid",
+    })
+    assert resp.status_code == 400
+
+
+async def test_candidates_bulk_status_empty_ids(client):
+    """POST /api/candidates/bulk-status rejects empty ids."""
+    resp = await client.post("/api/candidates/bulk-status", json={
+        "ids": [],
+        "status": "approved",
+    })
+    assert resp.status_code == 400
+
+
 async def test_candidates_invalid_status(client, ctx):
     cid = await ctx.db.add_candidate(
         item_code="B09X",
@@ -292,6 +344,64 @@ async def test_listing_run(client, ctx):
     assert "listed_count" in data
 
 
+async def test_listing_preview(client, ctx):
+    """GET /api/listing/preview/{id} returns listing preview info."""
+    cid = await ctx.db.add_candidate(
+        item_code="PREV01", source_site="amazon", title_jp="プレビューテスト",
+        title_en=None, cost_jpy=3000, ebay_price_usd=60.0,
+        net_profit_jpy=3000, margin_rate=1.0, weight_g=500,
+    )
+    await ctx.db.update_candidate_status(cid, "approved")
+
+    resp = await client.get(f"/api/listing/preview/{cid}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["candidate_id"] == cid
+    assert data["title_jp"] == "プレビューテスト"
+    assert data["sku"] == f"ECHUB-{cid}"
+    assert data["listing_price_usd"] > 0
+    assert data["fx_rate"] > 0
+    assert data["ebay_fee_jpy"] > 0
+    assert data["shipping_cost_jpy"] > 0
+    assert "estimated_profit_jpy" in data
+
+
+async def test_listing_preview_not_found(client):
+    """GET /api/listing/preview/{id} returns 404 for missing candidate."""
+    resp = await client.get("/api/listing/preview/99999")
+    assert resp.status_code == 404
+
+
+async def test_listing_run_selected(client, ctx):
+    """POST /api/listing/run with candidate_ids publishes only selected."""
+    cid1 = await ctx.db.add_candidate(
+        item_code="SEL01", source_site="amazon", title_jp="選択出品1",
+        title_en=None, cost_jpy=2000, ebay_price_usd=50.0,
+        net_profit_jpy=2000, margin_rate=1.0,
+    )
+    cid2 = await ctx.db.add_candidate(
+        item_code="SEL02", source_site="amazon", title_jp="選択出品2",
+        title_en=None, cost_jpy=3000, ebay_price_usd=70.0,
+        net_profit_jpy=3000, margin_rate=1.0,
+    )
+    await ctx.db.update_candidate_status(cid1, "approved")
+    await ctx.db.update_candidate_status(cid2, "approved")
+
+    # Publish only cid1
+    resp = await client.post("/api/listing/run", json={
+        "candidate_ids": [cid1],
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["listed_count"] == 1
+
+    # cid1 should be listed, cid2 should still be approved
+    c1 = await ctx.db.get_candidate_by_id(cid1)
+    c2 = await ctx.db.get_candidate_by_id(cid2)
+    assert c1["status"] == "listed"
+    assert c2["status"] == "approved"
+
+
 async def test_listing_limits(client):
     """GET /api/listing/limits returns selling limit info."""
     resp = await client.get("/api/listing/limits")
@@ -404,6 +514,52 @@ async def test_messages_filter_by_buyer(client, ctx):
     messages = resp.json()
     assert len(messages) == 1
     assert messages[0]["buyer_username"] == "alice"
+
+
+async def test_messages_filter_by_category(client, ctx):
+    """GET /api/messages?category=xxx filters by category."""
+    await ctx.db.add_message(
+        buyer_username="cat1", body="Where is my tracking?", category="shipping_tracking",
+    )
+    await ctx.db.add_message(
+        buyer_username="cat2", body="I want to return", category="return_cancel",
+    )
+    await ctx.db.add_message(
+        buyer_username="cat3", body="Random question", category="other",
+    )
+
+    resp = await client.get("/api/messages?category=shipping_tracking")
+    messages = resp.json()
+    assert len(messages) == 1
+    assert messages[0]["category"] == "shipping_tracking"
+
+    resp = await client.get("/api/messages?category=other")
+    messages = resp.json()
+    assert len(messages) == 1
+    assert messages[0]["category"] == "other"
+
+    # All messages without filter
+    resp = await client.get("/api/messages")
+    assert len(resp.json()) == 3
+
+
+async def test_messages_filter_by_buyer_and_category(client, ctx):
+    """GET /api/messages with both buyer and category filters."""
+    await ctx.db.add_message(
+        buyer_username="combo_buyer", body="Tracking?", category="shipping_tracking",
+    )
+    await ctx.db.add_message(
+        buyer_username="combo_buyer", body="Return?", category="return_cancel",
+    )
+    await ctx.db.add_message(
+        buyer_username="other_buyer", body="Tracking?", category="shipping_tracking",
+    )
+
+    resp = await client.get("/api/messages?buyer=combo_buyer&category=shipping_tracking")
+    messages = resp.json()
+    assert len(messages) == 1
+    assert messages[0]["buyer_username"] == "combo_buyer"
+    assert messages[0]["category"] == "shipping_tracking"
 
 
 async def test_messages_reply(client, ctx):

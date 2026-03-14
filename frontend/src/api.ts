@@ -4,6 +4,7 @@ import type {
   DashboardData,
   JobRun,
   ListingLimits,
+  ListingPreview,
   Message,
   Order,
   ProfitForm,
@@ -52,6 +53,12 @@ export const api = {
       body: JSON.stringify({ status }),
     }),
 
+  bulkUpdateCandidateStatus: (ids: number[], status: string) =>
+    request<{ updated_count: number; status: string }>('/candidates/bulk-status', {
+      method: 'POST',
+      body: JSON.stringify({ ids, status }),
+    }),
+
   getOrders: (status?: string | null, limit = 50) =>
     request<Order[]>(withParams('/orders', { status, limit })),
 
@@ -93,13 +100,19 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  runListing: () =>
-    request<{ listed_count: number }>('/listing/run', { method: 'POST' }),
+  runListing: (candidateIds?: number[]) =>
+    request<{ listed_count: number }>('/listing/run', {
+      method: 'POST',
+      body: candidateIds ? JSON.stringify({ candidate_ids: candidateIds }) : undefined,
+    }),
+
+  getListingPreview: (candidateId: number) =>
+    request<ListingPreview>(`/listing/preview/${candidateId}`),
 
   getListingLimits: () => request<ListingLimits>('/listing/limits'),
 
-  getMessages: (buyer?: string, limit = 50) =>
-    request<Message[]>(withParams('/messages', { buyer, limit })),
+  getMessages: (buyer?: string, category?: string, limit = 50) =>
+    request<Message[]>(withParams('/messages', { buyer, category, limit })),
 
   replyMessage: (id: number, body: string) =>
     request<void>(`/messages/${id}/reply`, {

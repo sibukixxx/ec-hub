@@ -125,6 +125,23 @@ export interface ListingLimits {
   remaining: number;
 }
 
+export interface ListingPreview {
+  candidate_id: number;
+  title_jp: string | null;
+  source_site: string;
+  cost_jpy: number;
+  weight_g: number;
+  listing_price_usd: number;
+  fx_rate: number;
+  ebay_fee_jpy: number;
+  payoneer_fee_jpy: number;
+  shipping_cost_jpy: number;
+  packing_cost_jpy: number;
+  estimated_profit_jpy: number;
+  sku: string;
+  status: string;
+}
+
 export interface JobRun {
   id: number;
   job_name: string;

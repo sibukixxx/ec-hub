@@ -26,5 +26,8 @@ class CandidateRepository:
     async def update_status(self, candidate_id: int, status: str) -> None:
         await self._db.update_candidate_status(candidate_id, status)
 
+    async def bulk_update_status(self, candidate_ids: list[int], status: str) -> int:
+        return await self._db.bulk_update_candidate_status(candidate_ids, status)
+
     async def count_by_status(self, status: str | None = None) -> int:
         return await self._db.count_candidates_by_status(status)

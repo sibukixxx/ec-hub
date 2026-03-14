@@ -404,6 +404,50 @@ tr:hover td {
   font-size: 0.9rem;
 }
 
+/* Selected row */
+.row-selected td {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+/* Escalation row */
+.row-escalation td {
+  background: rgba(239, 68, 68, 0.08);
+  border-left: 3px solid var(--red);
+}
+
+/* Checkbox in tables */
+input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+/* Disabled button */
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Preview grid */
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.5rem 1.5rem;
+}
+
+.preview-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.preview-label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
 /* Loading */
 .loading {
   text-align: center;
