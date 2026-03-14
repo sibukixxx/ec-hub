@@ -21,6 +21,7 @@ from ec_hub.context import AppContext
 from ec_hub.exceptions import InvalidStatusError, NotFoundError
 from ec_hub.modules.price_predictor import PricePredictor
 from ec_hub.modules.profit_tracker import ProfitTracker
+from ec_hub.scheduler import Scheduler
 from ec_hub.scrapers.ebay import EbayScraper
 from ec_hub.usecases.dashboard import DashboardUseCase
 from ec_hub.usecases.export import ExportUseCase
@@ -40,8 +41,15 @@ async def lifespan(app: FastAPI):
     ctx = AppContext.create()
     await ctx.connect()
     app.state.ctx = ctx
-    logger.info("API server started, AppContext connected")
+
+    scheduler = Scheduler(ctx)
+    scheduler.start()
+    app.state.scheduler = scheduler
+    logger.info("API server started, AppContext connected, Scheduler started")
+
     yield
+
+    scheduler.shutdown()
     await ctx.close()
 
 
@@ -431,6 +439,31 @@ async def export_data(
         headers["Content-Disposition"] = f'attachment; filename="{data_type}.csv"'
 
     return Response(content=content, media_type=media_type, headers=headers)
+
+
+# --- スケジューラ ---
+
+
+@app.get("/api/scheduler/status")
+async def scheduler_status() -> dict:
+    """スケジューラの状態を確認する."""
+    scheduler: Scheduler | None = getattr(app.state, "scheduler", None)
+    if scheduler is None:
+        # テスト環境などスケジューラ未初期化時のフォールバック
+        return {"running": False, "jobs": []}
+    return scheduler.get_status()
+
+
+@app.post("/api/scheduler/trigger/{job_name}")
+async def trigger_job(job_name: str) -> dict:
+    """ジョブを手動トリガーする."""
+    scheduler: Scheduler | None = getattr(app.state, "scheduler", None)
+    if scheduler is None:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+    try:
+        return await scheduler.trigger_job(job_name)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 # --- 静的ファイル配信 (ビルド済みフロントエンド) ---
