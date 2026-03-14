@@ -3,8 +3,10 @@ import { getCurrentUrl, route } from 'preact-router';
 
 const links = [
   { href: '/', label: 'Dashboard' },
+  { href: '/operations', label: 'Operations' },
   { href: '/candidates', label: 'Candidates' },
   { href: '/compare', label: 'Price Compare' },
+  { href: '/messages', label: 'Messages' },
   { href: '/orders', label: 'Orders' },
   { href: '/calc', label: 'Profit Calc' },
 ];

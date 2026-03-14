@@ -11,15 +11,22 @@ async function request(path, options = {}) {
   return res.json();
 }
 
+function withParams(path, params) {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      search.set(key, value);
+    }
+  });
+  const query = search.toString();
+  return query ? `${path}?${query}` : path;
+}
+
 export const api = {
   getDashboard: () => request('/dashboard'),
 
-  getCandidates: (status, limit = 50) => {
-    const params = new URLSearchParams();
-    if (status) params.set('status', status);
-    params.set('limit', limit);
-    return request(`/candidates?${params}`);
-  },
+  getCandidates: (status, limit = 50) =>
+    request(withParams('/candidates', { status, limit })),
 
   updateCandidateStatus: (id, status) =>
     request(`/candidates/${id}/status`, {
@@ -27,12 +34,17 @@ export const api = {
       body: JSON.stringify({ status }),
     }),
 
-  getOrders: (status, limit = 50) => {
-    const params = new URLSearchParams();
-    if (status) params.set('status', status);
-    params.set('limit', limit);
-    return request(`/orders?${params}`);
-  },
+  getOrders: (status, limit = 50) =>
+    request(withParams('/orders', { status, limit })),
+
+  updateOrderStatus: (id, data) =>
+    request(`/orders/${id}/status`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  checkOrders: () =>
+    request('/orders/check', { method: 'POST' }),
 
   calcProfit: (data) =>
     request('/calc/profit', {
@@ -51,4 +63,46 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  getResearchRuns: (limit = 20) =>
+    request(withParams('/research/runs', { limit })),
+
+  getResearchRun: (id) =>
+    request(`/research/runs/${id}`),
+
+  runResearch: (data) =>
+    request('/research/run', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  runListing: () =>
+    request('/listing/run', { method: 'POST' }),
+
+  getListingLimits: () =>
+    request('/listing/limits'),
+
+  getMessages: (buyer, limit = 50) =>
+    request(withParams('/messages', { buyer, limit })),
+
+  replyMessage: (id, body) =>
+    request(`/messages/${id}/reply`, {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+    }),
+
+  getJobRuns: (jobName, limit = 20) =>
+    request(withParams('/job-runs', { job_name: jobName, limit })),
+
+  getSystemHealth: () =>
+    request('/system/health'),
+
+  getSchedulerStatus: () =>
+    request('/scheduler/status'),
+
+  triggerSchedulerJob: (jobName) =>
+    request(`/scheduler/trigger/${jobName}`, { method: 'POST' }),
+
+  exportUrl: (dataType, format = 'csv') =>
+    `${BASE}${withParams(`/export/${dataType}`, { format })}`,
 };
