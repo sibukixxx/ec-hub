@@ -24,6 +24,7 @@ from ec_hub.modules.profit_tracker import ProfitTracker
 from ec_hub.scrapers.amazon import AmazonClient
 from ec_hub.scrapers.base import SourceProduct, SourceSearcher
 from ec_hub.scrapers.ebay import EbayScraper
+from ec_hub.scrapers.muji import MujiClient
 from ec_hub.scrapers.rakuten import RakutenClient
 from ec_hub.scrapers.yahoo_shopping import YahooShoppingClient
 
@@ -83,6 +84,11 @@ class Researcher:
             searchers.append(YahooShoppingClient(
                 app_id=yahoo_config["app_id"],
             ))
+
+        # Muji (no API key required, scraping-based)
+        muji_config = self._settings.get("muji", {})
+        if muji_config.get("enabled", False):
+            searchers.append(MujiClient())
 
         return searchers
 
