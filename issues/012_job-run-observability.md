@@ -26,3 +26,8 @@
 - `src/ec_hub/modules/*.py`
 - `src/ec_hub/db/database.py`
 - `frontend/src/pages/Dashboard.jsx`
+
+## 残課題
+- `research_runs` はあるが、全ジョブ共通の `job_runs` / `system_health` は未実装
+- `Researcher` / `Lister` / `OrderManager` / `Messenger` を共通 wrapper で包む実行記録、warning、error 集約がない
+- Dashboard の実行履歴表示と、LINE 通知の severity / dedupe 制御が未実装

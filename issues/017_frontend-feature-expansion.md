@@ -43,3 +43,8 @@
 - `frontend/src/pages/*.jsx`
 - `frontend/src/components/*.jsx`
 - `frontend/src/api.js`
+
+## 残課題
+- `frontend/src/api.js` は Dashboard / Candidates / Orders / ProfitCalc / Compare までで、リサーチ実行、出品実行、注文更新、メッセージ、エクスポート用の API ラッパーがない
+- Candidates は単票の承認 / 却下まで、Orders は閲覧のみで、リサーチ・出品・注文更新・一括操作の UI が未実装
+- メッセージセンター、設定管理、エクスポート導線などの管理画面ルート自体が未追加

@@ -28,3 +28,7 @@
 ## 関連ファイル
 - `src/ec_hub/api.py`
 - `src/ec_hub/modules/*.py`
+
+## 残課題
+- `POST /api/research/run` はあるが、非同期ジョブ前提の `GET /api/research/status` は未実装
+- 代わりに `GET /api/research/runs` / `GET /api/research/runs/{id}` はあるため、今後は専用 status API を足すか既存の履歴 API に役割を寄せるかを整理する必要がある

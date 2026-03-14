@@ -26,3 +26,8 @@
 - `config/fee_rules.yaml`
 - `src/ec_hub/modules/*.py`
 - `src/ec_hub/services/*.py`
+
+## 残課題
+- `settings.yaml` に対する `settings.local.yaml` の重ね合わせと、`settings.yaml` < `settings.local.yaml` < 環境変数 の優先順位整理が未実装
+- 外部連携ごとの「必須なら起動失敗」「任意なら degraded mode」の区分が、型と起動フローに明示的に落ち切っていない
+- DB パス以外のモデル保存先や静的ファイルパスなどの解決は、まだ設定層へ集約し切れていない

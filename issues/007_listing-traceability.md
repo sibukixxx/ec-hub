@@ -37,3 +37,8 @@
 - `src/ec_hub/services/ebay_api.py`
 - `src/ec_hub/db/database.py`
 - `src/ec_hub/models.py`
+
+## 残課題
+- `listings` テーブルと保存処理は入ったが、`OrderManager.check_new_orders()` は eBay の line items / SKU から `listing_id` と `candidate_id` を自動逆引きしていない
+- `messages` テーブルに `listing_id` はあるものの、Messenger の受信・返信フローで注文 / 出品との関連付けがまだ薄い
+- 候補・出品・注文の状態遷移は分散実装のままで、整合性ルールを一元管理する層がない
