@@ -144,3 +144,64 @@ async def test_check_new_orders_unconfigured(order_manager):
     """eBay API未設定時は空リスト."""
     result = await order_manager.check_new_orders()
     assert result == []
+
+
+async def test_register_order_with_listing_id(order_manager, db):
+    """listing_idを指定して注文登録できる."""
+    cid = await db.add_candidate(
+        item_code="B09TRACE",
+        source_site="amazon",
+        title_jp="トレース商品",
+        title_en="Trace Product",
+        cost_jpy=3000,
+        ebay_price_usd=80.0,
+        net_profit_jpy=5000,
+        margin_rate=1.67,
+    )
+    lid = await db.add_listing(
+        candidate_id=cid,
+        sku=f"ECHUB-{cid}",
+        title_en="Trace Product",
+        listed_price_usd=80.0,
+        listed_fx_rate=150.0,
+    )
+    oid = await order_manager.register_order(
+        ebay_order_id="TRACE-001",
+        buyer_username="trace_buyer",
+        sale_price_usd=80.0,
+        destination_country="US",
+        candidate_id=cid,
+        listing_id=lid,
+    )
+    order = await db.get_order_by_id(oid)
+    assert order["listing_id"] == lid
+    assert order["candidate_id"] == cid
+
+
+async def test_resolve_listing_from_sku(order_manager, db):
+    """SKUからlisting/candidateを逆引きできる."""
+    cid = await db.add_candidate(
+        item_code="B09RESOLVE",
+        source_site="amazon",
+        title_jp="逆引き商品",
+        title_en="Resolve Product",
+        cost_jpy=4000,
+        ebay_price_usd=100.0,
+        net_profit_jpy=7000,
+        margin_rate=1.75,
+    )
+    await db.add_listing(
+        candidate_id=cid,
+        sku=f"ECHUB-{cid}",
+        title_en="Resolve Product",
+        listed_price_usd=100.0,
+        listed_fx_rate=150.0,
+    )
+
+    listing = await db.get_listing_by_sku(f"ECHUB-{cid}")
+    assert listing is not None
+    assert listing["candidate_id"] == cid
+
+    candidate = await db.get_candidate_by_id(listing["candidate_id"])
+    assert candidate is not None
+    assert candidate["item_code"] == "B09RESOLVE"

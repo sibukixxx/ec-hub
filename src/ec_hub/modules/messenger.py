@@ -132,7 +132,7 @@ class Messenger:
         claude_config = self._settings.get("claude", {})
         api_key = claude_config.get("api_key", "")
         if api_key:
-            model = claude_config.get("classifier_model", "claude-haiku-4-5-20251001")
+            model = claude_config.get("model", "claude-haiku-4-5-20251001")
             self._claude_classifier = _ClaudeClassifier(api_key, model=model)
             logger.info("Claude Haiku 分類器を有効化 (model=%s)", model)
 

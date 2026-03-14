@@ -1,24 +1,25 @@
-# eBay CSS セレクタ設定
-# DOM 変更時はこのファイルを更新するだけで対応可能
+# eBay CSS Selectors Configuration
+# Change these when eBay updates their DOM structure
+# No code changes or redeployment required
 
-search:
-  item: "li.s-item"
-  title: "div.s-item__title span[role='heading']"
-  title_fallback: "div.s-item__title"
-  link: "a.s-item__link"
-  price: "span.s-item__price"
-  image: "img.s-item__image-img"
-  shipping: "span.s-item__shipping"
-  condition: "span.SECONDARY_INFO"
-  result_count: "h1.srp-controls__count-heading span.BOLD"
+# Search results page
+search_result_count: "h1.srp-controls__count-heading span.BOLD"
+search_item: "li.s-item"
+search_title: "div.s-item__title span[role='heading']"
+search_title_fallback: "div.s-item__title"
+search_link: "a.s-item__link"
+search_price: "span.s-item__price"
+search_image: "img.s-item__image-img"
+search_shipping: "span.s-item__shipping"
+search_condition: "span.SECONDARY_INFO"
 
-item_page:
-  title: "h1.x-item-title__mainTitle span"
-  price_primary: "div.x-price-primary span.ux-textspanx--BOLD"
-  price_fallback: "span[itemprop='price']"
-  image_primary: "img.ux-image-magnify__container--original"
-  image_fallback: "div.ux-image-carousel-item img"
-  seller_primary: "span.ux-textspanx--BOLD[data-testid='ux-seller-section__item--seller']"
-  seller_fallback: "div.x-sellercard-atf__info__about-seller a span"
-  condition_primary: "span.ux-icon-text__text[data-testid='ux-icon-text']"
-  condition_fallback: "div.x-item-condition span.ux-textspanx"
+# Item detail page
+item_title: "h1.x-item-title__mainTitle span"
+item_price: "div.x-price-primary span.ux-textspanx--BOLD"
+item_price_fallback: "span[itemprop='price']"
+item_image: "img.ux-image-magnify__container--original"
+item_image_fallback: "div.ux-image-carousel-item img"
+item_seller: "span.ux-textspanx--BOLD[data-testid='ux-seller-section__item--seller']"
+item_seller_fallback: "div.x-sellercard-atf__info__about-seller a span"
+item_condition: "span.ux-icon-text__text[data-testid='ux-icon-text']"
+item_condition_fallback: "div.x-item-condition span.ux-textspanx"

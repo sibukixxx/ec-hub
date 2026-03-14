@@ -1,97 +1,73 @@
-"""サーキットブレーカーパターンの実装."""
+"""サーキットブレーカーパターン."""
 
 from __future__ import annotations
 
+import logging
 import time
 from enum import Enum
 
-
-class CircuitBreakerOpenError(Exception):
-    """サーキットブレーカーが OPEN 状態のため操作が拒否された."""
+logger = logging.getLogger(__name__)
 
 
-class _State(Enum):
+class CircuitState(str, Enum):
     CLOSED = "closed"
     OPEN = "open"
     HALF_OPEN = "half_open"
 
 
-class CircuitBreaker:
-    """サーキットブレーカー.
+class CircuitBreakerOpen(Exception):
+    """サーキットブレーカーが OPEN 状態で呼び出された場合の例外."""
 
-    連続失敗が閾値に達すると OPEN に遷移し、リクエストをブロックする。
-    recovery_timeout 経過後に HALF_OPEN で1件だけ試行を許可し、
-    成功すれば CLOSED に戻り、失敗すれば再び OPEN になる。
+
+class CircuitBreaker:
+    """連続失敗を検知してリクエストを遮断するサーキットブレーカー.
+
+    Args:
+        failure_threshold: OPEN に遷移する連続失敗回数
+        recovery_timeout: OPEN から HALF_OPEN に遷移するまでの秒数
     """
 
-    def __init__(
-        self,
-        *,
-        failure_threshold: int = 5,
-        recovery_timeout: float = 60.0,
-    ) -> None:
+    def __init__(self, *, failure_threshold: int = 5, recovery_timeout: float = 60.0) -> None:
         self._failure_threshold = failure_threshold
         self._recovery_timeout = recovery_timeout
         self._failure_count = 0
-        self._state = _State.CLOSED
-        self._opened_at: float = 0.0
+        self._last_failure_time: float = 0.0
+        self._state = CircuitState.CLOSED
 
     @property
-    def failure_count(self) -> int:
-        return self._failure_count
+    def state(self) -> CircuitState:
+        if self._state == CircuitState.OPEN:
+            elapsed = time.monotonic() - self._last_failure_time
+            if elapsed >= self._recovery_timeout:
+                self._state = CircuitState.HALF_OPEN
+                logger.info("Circuit breaker transitioned to HALF_OPEN after %.1fs", elapsed)
+        return self._state
 
-    @property
-    def is_closed(self) -> bool:
-        self._evaluate_state()
-        return self._state == _State.CLOSED
-
-    @property
-    def is_open(self) -> bool:
-        self._evaluate_state()
-        return self._state == _State.OPEN
-
-    @property
-    def is_half_open(self) -> bool:
-        self._evaluate_state()
-        return self._state == _State.HALF_OPEN
-
-    def _evaluate_state(self) -> None:
-        """OPEN 状態でタイムアウトを過ぎていれば HALF_OPEN に遷移."""
-        if self._state == _State.OPEN:
-            if time.monotonic() - self._opened_at >= self._recovery_timeout:
-                self._state = _State.HALF_OPEN
-
-    def allow_request(self) -> bool:
-        """リクエストを許可するかどうか."""
-        self._evaluate_state()
-        if self._state == _State.CLOSED:
-            return True
-        if self._state == _State.HALF_OPEN:
-            return True
-        return False
-
-    def ensure_closed(self) -> None:
-        """CLOSED / HALF_OPEN でなければ例外を送出."""
-        if not self.allow_request():
-            raise CircuitBreakerOpenError(
-                f"Circuit breaker is OPEN (failures={self._failure_count}, "
-                f"threshold={self._failure_threshold})"
+    def allow_request(self) -> None:
+        """リクエスト可否を判定する. OPEN なら CircuitBreakerOpen を送出."""
+        current = self.state
+        if current == CircuitState.OPEN:
+            raise CircuitBreakerOpen(
+                f"Circuit breaker is OPEN (failures={self._failure_count}, retry after {self._recovery_timeout}s)"
             )
 
-    def record_success(self) -> None:
-        """成功を記録し CLOSED に遷移."""
-        self._failure_count = 0
-        self._state = _State.CLOSED
-
     def record_failure(self) -> None:
-        """失敗を記録し、閾値到達で OPEN に遷移."""
+        """失敗を記録する."""
         self._failure_count += 1
+        self._last_failure_time = time.monotonic()
         if self._failure_count >= self._failure_threshold:
-            self._state = _State.OPEN
-            self._opened_at = time.monotonic()
+            self._state = CircuitState.OPEN
+            logger.warning(
+                "Circuit breaker OPENED after %d consecutive failures",
+                self._failure_count,
+            )
+        elif self._state == CircuitState.HALF_OPEN:
+            self._state = CircuitState.OPEN
+            logger.warning("Circuit breaker re-OPENED from HALF_OPEN")
 
-    def reset(self) -> None:
-        """手動リセット."""
+    def record_success(self) -> None:
+        """成功を記録する."""
+        if self._state == CircuitState.HALF_OPEN:
+            logger.info("Circuit breaker CLOSED from HALF_OPEN")
         self._failure_count = 0
-        self._state = _State.CLOSED
-        self._opened_at = 0.0
+        self._state = CircuitState.CLOSED

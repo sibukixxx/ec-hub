@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from ec_hub.scrapers.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
+from ec_hub.scrapers.circuit_breaker import CircuitBreaker, CircuitBreakerOpen, CircuitState
 
 
 class TestCircuitBreakerClosed:
@@ -12,14 +12,14 @@ class TestCircuitBreakerClosed:
 
     def test_allows_call_when_closed(self):
         cb = CircuitBreaker(failure_threshold=3, recovery_timeout=10.0)
-        assert cb.is_closed is True
-        assert cb.allow_request() is True
+        assert cb.state == CircuitState.CLOSED
+        cb.allow_request()  # should not raise
 
     def test_remains_closed_after_single_failure(self):
         cb = CircuitBreaker(failure_threshold=3, recovery_timeout=10.0)
         cb.record_failure()
-        assert cb.is_closed is True
-        assert cb.allow_request() is True
+        assert cb.state == CircuitState.CLOSED
+        cb.allow_request()  # should not raise
 
 
 class TestCircuitBreakerOpen:
@@ -30,15 +30,14 @@ class TestCircuitBreakerOpen:
         cb.record_failure()
         cb.record_failure()
         cb.record_failure()
-        assert cb.is_open is True
-        assert cb.allow_request() is False
+        assert cb.state == CircuitState.OPEN
 
     def test_raises_error_when_open(self):
         cb = CircuitBreaker(failure_threshold=2, recovery_timeout=10.0)
         cb.record_failure()
         cb.record_failure()
-        with pytest.raises(CircuitBreakerOpenError):
-            cb.ensure_closed()
+        with pytest.raises(CircuitBreakerOpen):
+            cb.allow_request()
 
 
 class TestCircuitBreakerHalfOpen:
@@ -48,11 +47,11 @@ class TestCircuitBreakerHalfOpen:
         cb = CircuitBreaker(failure_threshold=2, recovery_timeout=0.1)
         cb.record_failure()
         cb.record_failure()
-        assert cb.is_open is True
+        assert cb.state == CircuitState.OPEN
 
         time.sleep(0.15)
-        assert cb.is_half_open is True
-        assert cb.allow_request() is True
+        assert cb.state == CircuitState.HALF_OPEN
+        cb.allow_request()  # should not raise in HALF_OPEN
 
     def test_closes_on_success_in_half_open(self):
         cb = CircuitBreaker(failure_threshold=2, recovery_timeout=0.1)
@@ -60,10 +59,10 @@ class TestCircuitBreakerHalfOpen:
         cb.record_failure()
 
         time.sleep(0.15)
-        assert cb.is_half_open is True
+        assert cb.state == CircuitState.HALF_OPEN
 
         cb.record_success()
-        assert cb.is_closed is True
+        assert cb.state == CircuitState.CLOSED
 
     def test_reopens_on_failure_in_half_open(self):
         cb = CircuitBreaker(failure_threshold=2, recovery_timeout=0.1)
@@ -71,10 +70,10 @@ class TestCircuitBreakerHalfOpen:
         cb.record_failure()
 
         time.sleep(0.15)
-        assert cb.is_half_open is True
+        assert cb.state == CircuitState.HALF_OPEN
 
         cb.record_failure()
-        assert cb.is_open is True
+        assert cb.state == CircuitState.OPEN
 
 
 class TestCircuitBreakerReset:
@@ -85,15 +84,15 @@ class TestCircuitBreakerReset:
         cb.record_failure()
         cb.record_failure()
         cb.record_success()
-        assert cb.failure_count == 0
-        assert cb.is_closed is True
+        assert cb.state == CircuitState.CLOSED
+        cb.allow_request()  # should not raise
 
-    def test_manual_reset(self):
-        cb = CircuitBreaker(failure_threshold=2, recovery_timeout=10.0)
+    def test_success_after_failures_prevents_open(self):
+        cb = CircuitBreaker(failure_threshold=3, recovery_timeout=10.0)
         cb.record_failure()
         cb.record_failure()
-        assert cb.is_open is True
-
-        cb.reset()
-        assert cb.is_closed is True
-        assert cb.failure_count == 0
+        cb.record_success()
+        # After reset, need full threshold again to open
+        cb.record_failure()
+        cb.record_failure()
+        assert cb.state == CircuitState.CLOSED
