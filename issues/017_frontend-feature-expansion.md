@@ -46,6 +46,6 @@
 
 ## 残課題
 - `frontend/src/pages/Operations.tsx` / `Orders.tsx` / `Messages.tsx` により、リサーチ実行と進捗確認、出品実行と制限表示、注文更新、メッセージ一覧 / 手動返信、エクスポート導線までは実装済み
-- 出品は Operations 画面からの一括実行のみで、承認済み候補ごとの出品プレビューや選択的 publish UI はまだない
-- Candidates 画面の一括承認 / 一括却下 / 一括出品などのバルク操作は未実装
-- メッセージ画面にはカテゴリ表示と手動返信がある一方、`other` 判定やエスカレーション案件を明示的に絞り込む UI はまだない
+- ~~出品は Operations 画面からの一括実行のみで、承認済み候補ごとの出品プレビューや選択的 publish UI はまだない~~ → 出品プレビュー (GET /api/listing/preview/{id}) + 選択的出品 (POST /api/listing/run with candidate_ids) + Candidates ページに Preview ボタン・プレビューパネル・Bulk Publish 実装済み
+- ~~Candidates 画面の一括承認 / 一括却下 / 一括出品などのバルク操作は未実装~~ → Bulk Approve / Bulk Reject 実装済み (POST /api/candidates/bulk-status + Candidates ページ checkbox UI)
+- ~~メッセージ画面にはカテゴリ表示と手動返信がある一方、`other` 判定やエスカレーション案件を明示的に絞り込む UI はまだない~~ → カテゴリ別タブフィルタ実装済み (GET /api/messages?category=xxx + Messages ページ StatusTabs)。`other` カテゴリは "Escalation" ラベルで赤ハイライト表示
