@@ -88,6 +88,10 @@ class Candidate(BaseModel):
     source_url: str | None = None
     match_score: int | None = None
     match_reason: str | None = None
+    ebay_item_id: str | None = None
+    ebay_title: str | None = None
+    ebay_url: str | None = None
+    research_run_id: int | None = None
     status: CandidateStatus = CandidateStatus.PENDING
     created_at: datetime = Field(default_factory=datetime.utcnow)
 

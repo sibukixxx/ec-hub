@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS candidates (
     source_url TEXT,
     match_score INTEGER,
     match_reason TEXT,
+    ebay_item_id TEXT,
+    ebay_title TEXT,
+    ebay_url TEXT,
+    research_run_id INTEGER REFERENCES research_runs(id),
     status TEXT NOT NULL DEFAULT 'pending',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -80,7 +84,18 @@ CREATE TABLE IF NOT EXISTS daily_reports (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS research_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    query TEXT NOT NULL,
+    ebay_results_count INTEGER NOT NULL DEFAULT 0,
+    candidates_found INTEGER NOT NULL DEFAULT 0,
+    started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME
+);
+
 CREATE INDEX IF NOT EXISTS idx_candidates_status ON candidates(status);
+CREATE INDEX IF NOT EXISTS idx_candidates_dedup
+    ON candidates(source_site, item_code, ebay_item_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_ordered_at ON orders(ordered_at);
 CREATE INDEX IF NOT EXISTS idx_messages_buyer ON messages(buyer_username);
@@ -139,21 +154,103 @@ class Database:
         source_url: str | None = None,
         match_score: int | None = None,
         match_reason: str | None = None,
+        ebay_item_id: str | None = None,
+        ebay_title: str | None = None,
+        ebay_url: str | None = None,
+        research_run_id: int | None = None,
     ) -> int:
         cursor = await self.db.execute(
             """INSERT INTO candidates
             (item_code, source_site, title_jp, title_en, cost_jpy, ebay_price_usd,
              net_profit_jpy, margin_rate, weight_g, category, ebay_sold_count_30d,
-             image_url, source_url, match_score, match_reason)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             image_url, source_url, match_score, match_reason,
+             ebay_item_id, ebay_title, ebay_url, research_run_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 item_code, source_site, title_jp, title_en, cost_jpy, ebay_price_usd,
                 net_profit_jpy, margin_rate, weight_g, category, ebay_sold_count_30d,
                 image_url, source_url, match_score, match_reason,
+                ebay_item_id, ebay_title, ebay_url, research_run_id,
             ),
         )
         await self.db.commit()
         return cursor.lastrowid  # type: ignore[return-value]
+
+    async def upsert_candidate(
+        self,
+        *,
+        item_code: str,
+        source_site: str,
+        ebay_item_id: str,
+        title_jp: str,
+        title_en: str | None,
+        cost_jpy: int,
+        ebay_price_usd: float,
+        net_profit_jpy: int | None,
+        margin_rate: float | None,
+        weight_g: int | None = None,
+        category: str | None = None,
+        ebay_sold_count_30d: int = 0,
+        image_url: str | None = None,
+        source_url: str | None = None,
+        match_score: int | None = None,
+        match_reason: str | None = None,
+        ebay_title: str | None = None,
+        ebay_url: str | None = None,
+        research_run_id: int | None = None,
+    ) -> int:
+        """候補を登録または更新する (重複排除).
+
+        source_site + item_code + ebay_item_id の組み合わせで既存行を検索し、
+        存在すれば価格情報を更新、なければ新規挿入する。
+        """
+        cursor = await self.db.execute(
+            """SELECT id FROM candidates
+            WHERE source_site = ? AND item_code = ? AND ebay_item_id = ?""",
+            (source_site, item_code, ebay_item_id),
+        )
+        existing = await cursor.fetchone()
+
+        if existing:
+            candidate_id = existing["id"]
+            await self.db.execute(
+                """UPDATE candidates SET
+                    cost_jpy = ?, ebay_price_usd = ?, net_profit_jpy = ?,
+                    margin_rate = ?, weight_g = ?, match_score = ?, match_reason = ?,
+                    ebay_title = ?, ebay_url = ?, research_run_id = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?""",
+                (
+                    cost_jpy, ebay_price_usd, net_profit_jpy, margin_rate,
+                    weight_g, match_score, match_reason,
+                    ebay_title, ebay_url, research_run_id,
+                    candidate_id,
+                ),
+            )
+            await self.db.commit()
+            return candidate_id
+
+        return await self.add_candidate(
+            item_code=item_code,
+            source_site=source_site,
+            title_jp=title_jp,
+            title_en=title_en,
+            cost_jpy=cost_jpy,
+            ebay_price_usd=ebay_price_usd,
+            net_profit_jpy=net_profit_jpy,
+            margin_rate=margin_rate,
+            weight_g=weight_g,
+            category=category,
+            ebay_sold_count_30d=ebay_sold_count_30d,
+            image_url=image_url,
+            source_url=source_url,
+            match_score=match_score,
+            match_reason=match_reason,
+            ebay_item_id=ebay_item_id,
+            ebay_title=ebay_title,
+            ebay_url=ebay_url,
+            research_run_id=research_run_id,
+        )
 
     async def get_candidate_by_id(self, candidate_id: int) -> dict | None:
         """IDで候補を1件取得する."""
@@ -300,6 +397,50 @@ class Database:
         cursor = await self.db.execute("SELECT * FROM messages WHERE id = ?", (message_id,))
         row = await cursor.fetchone()
         return dict(row) if row else None
+
+    # --- Daily Reports ---
+
+    # --- Research Runs ---
+
+    async def create_research_run(
+        self,
+        *,
+        query: str,
+        ebay_results_count: int = 0,
+    ) -> int:
+        cursor = await self.db.execute(
+            """INSERT INTO research_runs (query, ebay_results_count)
+            VALUES (?, ?)""",
+            (query, ebay_results_count),
+        )
+        await self.db.commit()
+        return cursor.lastrowid  # type: ignore[return-value]
+
+    async def complete_research_run(
+        self, run_id: int, candidates_found: int
+    ) -> None:
+        await self.db.execute(
+            """UPDATE research_runs
+            SET candidates_found = ?, completed_at = CURRENT_TIMESTAMP
+            WHERE id = ?""",
+            (candidates_found, run_id),
+        )
+        await self.db.commit()
+
+    async def get_research_run(self, run_id: int) -> dict | None:
+        cursor = await self.db.execute(
+            "SELECT * FROM research_runs WHERE id = ?", (run_id,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def get_research_runs(self, limit: int = 20) -> list[dict]:
+        cursor = await self.db.execute(
+            "SELECT * FROM research_runs ORDER BY started_at DESC LIMIT ?",
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
 
     # --- Daily Reports ---
 

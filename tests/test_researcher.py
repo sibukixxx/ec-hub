@@ -392,3 +392,95 @@ async def test_research_single_stores_match_data(researcher):
         assert len(candidates) == 1
         assert candidates[0]["match_score"] is not None
         assert candidates[0]["match_score"] > 0
+
+
+# --- provenance & dedup tests ---
+
+
+async def test_research_single_stores_ebay_provenance(researcher):
+    """research_singleがeBay出所情報をDBに保存する."""
+    searcher = MockSourceSearcher(
+        [
+            SourceProduct(
+                item_code="AMZ_PROV",
+                source_site="amazon",
+                title="Bandai Figure Provenance Test Product",
+                price_jpy=2000,
+                url="https://amazon.co.jp/dp/AMZ_PROV",
+            ),
+        ]
+    )
+    ebay_product = {
+        "item_id": "EBAY_PROV_001",
+        "title": "Bandai Figure Provenance Test Product",
+        "price_usd": 80.0,
+        "url": "https://www.ebay.com/itm/EBAY_PROV_001",
+    }
+    cid = await researcher.research_single(ebay_product, [searcher])
+    if cid is not None:
+        candidate = await researcher._db.get_candidate_by_id(cid)
+        assert candidate["ebay_item_id"] == "EBAY_PROV_001"
+        assert candidate["ebay_title"] == "Bandai Figure Provenance Test Product"
+        assert candidate["ebay_url"] == "https://www.ebay.com/itm/EBAY_PROV_001"
+
+
+async def test_research_single_dedup_same_pair(researcher):
+    """同じeBay商品+仕入れ商品ペアは重複登録しない."""
+    searcher = MockSourceSearcher(
+        [
+            SourceProduct(
+                item_code="AMZ_DEDUP",
+                source_site="amazon",
+                title="Bandai Dedup Test Figure Product",
+                price_jpy=2000,
+                url="https://amazon.co.jp/dp/AMZ_DEDUP",
+            ),
+        ]
+    )
+    ebay_product = {
+        "item_id": "EBAY_DEDUP_001",
+        "title": "Bandai Dedup Test Figure Product",
+        "price_usd": 80.0,
+        "url": "https://www.ebay.com/itm/EBAY_DEDUP_001",
+    }
+    cid1 = await researcher.research_single(ebay_product, [searcher])
+    cid2 = await researcher.research_single(ebay_product, [searcher])
+    if cid1 is not None and cid2 is not None:
+        assert cid1 == cid2
+        candidates = await researcher._db.get_candidates()
+        assert len(candidates) == 1
+
+
+async def test_run_creates_research_run(researcher, monkeypatch):
+    """run()がresearch_runsテーブルにレコードを作成する."""
+
+    async def mock_search_ebay_sold(query, pages=1):
+        return [
+            {
+                "item_id": "MOCK_EBAY_001",
+                "title": "Bandai Test Figure Run Product",
+                "price_usd": 80.0,
+                "url": "https://www.ebay.com/itm/MOCK_EBAY_001",
+            },
+        ]
+
+    monkeypatch.setattr(researcher, "search_ebay_sold", mock_search_ebay_sold)
+    # No source searchers configured → returns 0 but still creates run
+    # We need to add source searchers so the code path creates runs
+    monkeypatch.setattr(researcher, "_create_source_searchers", lambda: [
+        MockSourceSearcher([
+            SourceProduct(
+                item_code="AMZ_RUN",
+                source_site="amazon",
+                title="Bandai Test Figure Run Product",
+                price_jpy=2000,
+                url="https://amazon.co.jp/dp/AMZ_RUN",
+            ),
+        ]),
+    ])
+
+    await researcher.run(queries=["test query"], pages=1)
+    runs = await researcher._db.get_research_runs()
+    assert len(runs) >= 1
+    assert runs[0]["query"] == "test query"
+    assert runs[0]["completed_at"] is not None
