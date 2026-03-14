@@ -159,16 +159,33 @@ class OrderManager:
             country = ship_to_address.get("countryCode", "US")
             candidate_id, listing_id = await self._resolve_order_traceability(order)
 
-            new_orders.append({
+            order_data: dict = {
                 "ebay_order_id": order_id,
                 "buyer_username": buyer,
                 "sale_price_usd": sale_price,
                 "destination_country": country,
                 "candidate_id": candidate_id,
                 "listing_id": listing_id,
-            })
+            }
+            new_orders.append(order_data)
 
         return new_orders
+
+    async def resolve_listing_from_line_items(
+        self, line_items: list[dict]
+    ) -> dict | None:
+        """eBay注文のline itemsからSKU→listing→candidateを逆引きする."""
+        for item in line_items:
+            sku = item.get("sku")
+            if not sku:
+                continue
+            listing = await self._db.get_listing_by_sku(sku)
+            if listing:
+                return {
+                    "listing_id": listing["id"],
+                    "candidate_id": listing["candidate_id"],
+                }
+        return None
 
     async def register_order(
         self,
@@ -193,6 +210,22 @@ class OrderManager:
         await self._notifier.notify_order(ebay_order_id, sale_price_usd)
         logger.info("注文登録: %s ($%.2f) → %s", ebay_order_id, sale_price_usd, destination_country)
         return order_id
+
+    async def cancel_order(self, order_id: int) -> None:
+        """注文をキャンセルし、紐づくlistingをactiveに戻す."""
+        target = await self._db.get_order_by_id(order_id)
+        if not target:
+            logger.error("注文が見つかりません: order_id=%d", order_id)
+            return
+
+        await self._db.update_order(order_id, status="cancelled")
+
+        listing_id = target.get("listing_id")
+        if listing_id is not None:
+            await self._db.update_listing(listing_id, status="active")
+            logger.info("出品をactiveに復元: listing_id=%d", listing_id)
+
+        logger.info("注文キャンセル: order_id=%d", order_id)
 
     async def mark_purchased(self, order_id: int, actual_cost_jpy: int) -> None:
         """仕入れ完了を記録する."""

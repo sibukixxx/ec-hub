@@ -196,3 +196,54 @@ def test_messenger_init_with_custom_model():
     messenger._init_claude_classifier()
     assert messenger.has_claude_classifier is True
     assert messenger._claude_classifier._model == "claude-haiku-4-5-20251001"
+
+
+# --- listing_id 連携テスト ---
+
+
+async def test_handle_message_with_listing_id():
+    """listing_idを指定してメッセージ処理できる."""
+    from ec_hub.db import Database
+
+    db = Database(":memory:")
+    await db.connect()
+    try:
+        cid = await db.add_candidate(
+            item_code="B09MSG",
+            source_site="amazon",
+            title_jp="メッセージ商品",
+            title_en="Message Product",
+            cost_jpy=3000,
+            ebay_price_usd=80.0,
+            net_profit_jpy=5000,
+            margin_rate=1.67,
+        )
+        lid = await db.add_listing(
+            candidate_id=cid,
+            sku=f"ECHUB-{cid}",
+            title_en="Message Product",
+            listed_price_usd=80.0,
+            listed_fx_rate=150.0,
+        )
+        oid = await db.add_order(
+            ebay_order_id="MSG-ORD-001",
+            candidate_id=cid,
+            listing_id=lid,
+            sale_price_usd=80.0,
+        )
+
+        messenger = Messenger(db, settings={"claude": {}, "line": {}})
+        result = await messenger.handle_message(
+            buyer_username="buyer_msg",
+            body="When will my item ship?",
+            order_id=oid,
+            listing_id=lid,
+        )
+        assert result is True
+
+        messages = await db.get_messages(buyer_username="buyer_msg")
+        inbound = [m for m in messages if m["direction"] == "inbound"]
+        assert len(inbound) == 1
+        assert inbound[0]["listing_id"] == lid
+    finally:
+        await db.close()

@@ -541,6 +541,14 @@ class Database:
         row = await cursor.fetchone()
         return dict(row) if row else None
 
+    async def get_listing_by_ebay_listing_id(self, ebay_listing_id: str) -> dict | None:
+        """eBay listing_idで出品を検索する."""
+        cursor = await self.db.execute(
+            "SELECT * FROM listings WHERE listing_id = ?", (ebay_listing_id,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
     async def get_listing_by_offer_id(self, offer_id: str) -> dict | None:
         cursor = await self.db.execute(
             "SELECT * FROM listings WHERE offer_id = ?", (offer_id,)
@@ -548,12 +556,8 @@ class Database:
         row = await cursor.fetchone()
         return dict(row) if row else None
 
-    async def get_listing_by_external_id(self, external_listing_id: str) -> dict | None:
-        cursor = await self.db.execute(
-            "SELECT * FROM listings WHERE listing_id = ?", (external_listing_id,)
-        )
-        row = await cursor.fetchone()
-        return dict(row) if row else None
+    # Alias for get_listing_by_ebay_listing_id
+    get_listing_by_external_id = get_listing_by_ebay_listing_id
 
     async def get_listings(self, status: str | None = None, limit: int = 50) -> list[dict]:
         if status:

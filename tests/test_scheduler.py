@@ -90,19 +90,20 @@ class TestSchedulerInit:
         ctx = AppContext(settings=settings, fee_rules=test_fee_rules, db=db)
         scheduler = Scheduler(ctx)
         assert set(scheduler.get_job_names()) == {
+            "health_check",
             "researcher",
             "order_manager",
             "messenger",
             "profit_tracker",
         }
 
-    def test_no_scheduler_config_registers_no_jobs(self, test_fee_rules):
-        """scheduler 設定がない場合はジョブが登録されない."""
+    def test_no_scheduler_config_registers_only_health_check(self, test_fee_rules):
+        """scheduler 設定がない場合は health_check のみ登録される."""
         settings = {"database": {"path": ":memory:"}}
         db = Database(":memory:")
         ctx = AppContext(settings=settings, fee_rules=test_fee_rules, db=db)
         scheduler = Scheduler(ctx)
-        assert scheduler.get_job_names() == []
+        assert scheduler.get_job_names() == ["health_check"]
 
 
 class TestSchedulerStartStop:
@@ -134,7 +135,7 @@ class TestSchedulerStatus:
         assert "running" in status
         assert "jobs" in status
         assert isinstance(status["jobs"], list)
-        assert len(status["jobs"]) == 4
+        assert len(status["jobs"]) == 5  # 4 user jobs + health_check
 
     @pytest.mark.asyncio
     async def test_status_contains_job_details(self, ctx):

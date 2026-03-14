@@ -396,6 +396,58 @@ async def test_add_message_with_listing_id(db):
     assert msg["listing_id"] == lid
 
 
+async def test_get_listing_by_ebay_listing_id_returns_listing(db):
+    """eBay listing_idで出品を検索できる."""
+    cid = await _create_candidate(db)
+    lid = await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-EBAY-LID",
+        title_en="eBay Listing ID Test",
+        listed_price_usd=80.0,
+        listed_fx_rate=150.0,
+        listing_id="EBAY-LIST-12345",
+    )
+    result = await db.get_listing_by_ebay_listing_id("EBAY-LIST-12345")
+    assert result is not None
+    assert result["id"] == lid
+    assert result["sku"] == "ECHUB-EBAY-LID"
+
+
+async def test_get_listing_by_ebay_listing_id_returns_none_when_not_exists(db):
+    """存在しないeBay listing_idでNoneを返す."""
+    result = await db.get_listing_by_ebay_listing_id("NONEXISTENT")
+    assert result is None
+
+
+async def test_get_listings_by_status(db):
+    """ステータスで出品一覧を取得できる."""
+    cid = await _create_candidate(db)
+    await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-STAT-1",
+        title_en="Active Listing",
+        listed_price_usd=50.0,
+    )
+    lid2 = await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-STAT-2",
+        title_en="Sold Listing",
+        listed_price_usd=60.0,
+    )
+    await db.update_listing(lid2, status="sold")
+
+    active = await db.get_listings(status="active")
+    assert len(active) == 1
+    assert active[0]["sku"] == "ECHUB-STAT-1"
+
+    sold = await db.get_listings(status="sold")
+    assert len(sold) == 1
+    assert sold[0]["sku"] == "ECHUB-STAT-2"
+
+    all_listings = await db.get_listings()
+    assert len(all_listings) == 2
+
+
 async def test_add_message_derives_links_from_order(db):
     cid = await _create_candidate(db)
     lid = await db.add_listing(
