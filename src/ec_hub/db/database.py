@@ -237,6 +237,26 @@ class Database:
         await self.db.commit()
         return cursor.lastrowid  # type: ignore[return-value]
 
+    async def get_messages(
+        self, buyer_username: str | None = None, limit: int = 50
+    ) -> list[dict]:
+        if buyer_username:
+            cursor = await self.db.execute(
+                "SELECT * FROM messages WHERE buyer_username = ? ORDER BY created_at DESC LIMIT ?",
+                (buyer_username, limit),
+            )
+        else:
+            cursor = await self.db.execute(
+                "SELECT * FROM messages ORDER BY created_at DESC LIMIT ?", (limit,)
+            )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    async def get_message_by_id(self, message_id: int) -> dict | None:
+        cursor = await self.db.execute("SELECT * FROM messages WHERE id = ?", (message_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
     # --- Daily Reports ---
 
     async def save_daily_report(
