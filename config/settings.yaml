@@ -34,6 +34,10 @@ amazon:
 rakuten:
   app_id: ""
 
+# Yahoo!ショッピング API
+yahoo_shopping:
+  app_id: ""  # Yahoo!デベロッパーネットワークで取得したClient ID
+
 # 為替レート API
 exchange_rate:
   base_url: "https://api.exchangerate-api.com/v4/latest/USD"

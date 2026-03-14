@@ -24,6 +24,7 @@ from ec_hub.scrapers.amazon import AmazonClient
 from ec_hub.scrapers.base import SourceProduct, SourceSearcher
 from ec_hub.scrapers.ebay import EbayScraper
 from ec_hub.scrapers.rakuten import RakutenClient
+from ec_hub.scrapers.yahoo_shopping import YahooShoppingClient
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,12 @@ class Researcher:
         if rakuten_config.get("app_id"):
             searchers.append(RakutenClient(
                 app_id=rakuten_config["app_id"],
+            ))
+
+        yahoo_config = self._settings.get("yahoo_shopping", {})
+        if yahoo_config.get("app_id"):
+            searchers.append(YahooShoppingClient(
+                app_id=yahoo_config["app_id"],
             ))
 
         return searchers
