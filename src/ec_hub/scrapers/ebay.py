@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import Protocol, runtime_checkable
 
 import httpx
 from bs4 import BeautifulSoup, Tag
@@ -15,11 +16,22 @@ from ec_hub.models import (
     SellerInfo,
     ShippingInfo,
 )
+from ec_hub.scrapers.circuit_breaker import CircuitBreaker
+from ec_hub.scrapers.selectors import EbaySelectors
+from ec_hub.scrapers.validator import ScrapeValidator
 
 logger = logging.getLogger(__name__)
 
 EBAY_SEARCH_URL = "https://www.ebay.com/sch/i.html"
 EBAY_ITEM_URL = "https://www.ebay.com/itm/"
+
+
+@runtime_checkable
+class Notifiable(Protocol):
+    """通知送信プロトコル."""
+
+    async def send(self, message: str) -> bool: ...
+
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -41,11 +53,19 @@ class EbayScraper:
         timeout: float = 30.0,
         max_retries: int = 3,
         site: str = "com",
+        selectors: EbaySelectors | None = None,
+        circuit_breaker: CircuitBreaker | None = None,
+        validator: ScrapeValidator | None = None,
+        notifier: Notifiable | None = None,
     ) -> None:
         self._timeout = timeout
         self._max_retries = max_retries
         self._base_url = f"https://www.ebay.{site}"
         self._client: httpx.AsyncClient | None = None
+        self._selectors = selectors or EbaySelectors()
+        self._circuit_breaker = circuit_breaker
+        self._validator = validator
+        self._notifier = notifier
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -67,17 +87,42 @@ class EbayScraper:
         await self.close()
 
     async def _fetch(self, url: str, params: dict | None = None) -> str:
+        if self._circuit_breaker:
+            self._circuit_breaker.allow_request()
+
         client = await self._get_client()
         for attempt in range(self._max_retries):
             try:
                 resp = await client.get(url, params=params)
                 resp.raise_for_status()
+                if self._circuit_breaker:
+                    self._circuit_breaker.record_success()
                 return resp.text
             except httpx.HTTPError as e:
                 logger.warning("Fetch attempt %d failed for %s: %s", attempt + 1, url, e)
                 if attempt == self._max_retries - 1:
+                    if self._circuit_breaker:
+                        self._circuit_breaker.record_failure()
                     raise
         raise RuntimeError("Unreachable")
+
+    async def _validate_and_notify(self, html: str, result: SearchResult) -> None:
+        """検索結果をバリデーションし、問題があれば通知する."""
+        if not self._validator:
+            return
+
+        warnings: list[str] = []
+
+        html_validation = self._validator.validate_html(html, item_selector=self._selectors.search_item)
+        warnings.extend(html_validation.warnings)
+
+        result_validation = self._validator.validate_search_result(result)
+        warnings.extend(result_validation.warnings)
+
+        if warnings and self._notifier:
+            msg = "[ec-hub] Scraper warning:\n" + "\n".join(f"- {w}" for w in warnings)
+            logger.warning("Scraper validation warnings: %s", warnings)
+            await self._notifier.send(msg)
 
     async def search(
         self,
@@ -137,7 +182,9 @@ class EbayScraper:
 
         url = f"{self._base_url}/sch/i.html"
         html = await self._fetch(url, params=params)
-        return self._parse_search_results(html, query, page)
+        result = self._parse_search_results(html, query, page)
+        await self._validate_and_notify(html, result)
+        return result
 
     def _parse_search_results(self, html: str, query: str, page: int) -> SearchResult:
         """検索結果HTMLをパースする."""
@@ -145,7 +192,7 @@ class EbayScraper:
         products: list[Product] = []
 
         result_count = 0
-        count_el = soup.select_one("h1.srp-controls__count-heading span.BOLD")
+        count_el = soup.select_one(self._selectors.search_result_count)
         if count_el:
             count_text = count_el.get_text(strip=True).replace(",", "")
             try:
@@ -153,7 +200,7 @@ class EbayScraper:
             except ValueError:
                 pass
 
-        items = soup.select("li.s-item")
+        items = soup.select(self._selectors.search_item)
         for item in items:
             product = self._parse_search_item(item)
             if product:
@@ -168,9 +215,10 @@ class EbayScraper:
 
     def _parse_search_item(self, item: Tag) -> Product | None:
         """検索結果の個別アイテムをパースする."""
-        title_el = item.select_one("div.s-item__title span[role='heading']")
+        sel = self._selectors
+        title_el = item.select_one(sel.search_title)
         if not title_el:
-            title_el = item.select_one("div.s-item__title")
+            title_el = item.select_one(sel.search_title_fallback)
         if not title_el:
             return None
 
@@ -178,7 +226,7 @@ class EbayScraper:
         if title.lower() in ("shop on ebay", ""):
             return None
 
-        link_el = item.select_one("a.s-item__link")
+        link_el = item.select_one(sel.search_link)
         url = link_el["href"] if link_el and link_el.get("href") else ""
         if not isinstance(url, str):
             url = str(url)
@@ -189,7 +237,7 @@ class EbayScraper:
 
         price = self._parse_price(item)
 
-        img_el = item.select_one("img.s-item__image-img")
+        img_el = item.select_one(sel.search_image)
         image_url = None
         if img_el:
             image_url = img_el.get("src") or img_el.get("data-src")
@@ -220,10 +268,9 @@ class EbayScraper:
             return match.group(1)
         return None
 
-    @staticmethod
-    def _parse_price(item: Tag) -> float | None:
+    def _parse_price(self, item: Tag) -> float | None:
         """価格をパースする."""
-        price_el = item.select_one("span.s-item__price")
+        price_el = item.select_one(self._selectors.search_price)
         if not price_el:
             return None
         price_text = price_el.get_text(strip=True)
@@ -235,10 +282,9 @@ class EbayScraper:
                 return None
         return None
 
-    @staticmethod
-    def _parse_shipping(item: Tag) -> ShippingInfo:
+    def _parse_shipping(self, item: Tag) -> ShippingInfo:
         """配送情報をパースする."""
-        shipping_el = item.select_one("span.s-item__shipping")
+        shipping_el = item.select_one(self._selectors.search_shipping)
         if not shipping_el:
             return ShippingInfo()
         text = shipping_el.get_text(strip=True).lower()
@@ -253,12 +299,9 @@ class EbayScraper:
         return ShippingInfo()
 
     @staticmethod
-    def _parse_condition(item: Tag) -> ListingCondition:
-        """商品状態をパースする."""
-        cond_el = item.select_one("span.SECONDARY_INFO")
-        if not cond_el:
-            return ListingCondition.NOT_SPECIFIED
-        text = cond_el.get_text(strip=True).lower()
+    def _classify_condition(text: str) -> ListingCondition:
+        """テキストから商品状態を判定する."""
+        text = text.lower()
         if "new" in text and "open" not in text:
             return ListingCondition.NEW
         if "open box" in text:
@@ -270,6 +313,13 @@ class EbayScraper:
         if "parts" in text:
             return ListingCondition.FOR_PARTS
         return ListingCondition.NOT_SPECIFIED
+
+    def _parse_condition(self, item: Tag) -> ListingCondition:
+        """商品状態をパースする."""
+        cond_el = item.select_one(self._selectors.search_condition)
+        if not cond_el:
+            return ListingCondition.NOT_SPECIFIED
+        return self._classify_condition(cond_el.get_text(strip=True))
 
     async def get_item(self, item_id: str) -> Product | None:
         """商品IDから詳細情報を取得する.
@@ -287,16 +337,17 @@ class EbayScraper:
     def _parse_item_page(self, html: str, item_id: str, url: str) -> Product | None:
         """商品詳細ページHTMLをパースする."""
         soup = BeautifulSoup(html, "lxml")
+        sel = self._selectors
 
-        title_el = soup.select_one("h1.x-item-title__mainTitle span")
+        title_el = soup.select_one(sel.item_title)
         if not title_el:
             return None
         title = title_el.get_text(strip=True)
 
         price = None
-        price_el = soup.select_one("div.x-price-primary span.ux-textspanx--BOLD")
+        price_el = soup.select_one(sel.item_price)
         if not price_el:
-            price_el = soup.select_one("span[itemprop='price']")
+            price_el = soup.select_one(sel.item_price_fallback)
         if price_el:
             price_text = price_el.get_text(strip=True)
             match = re.search(r"[\d,]+\.?\d*", price_text.replace(",", ""))
@@ -306,9 +357,9 @@ class EbayScraper:
                 except ValueError:
                     pass
 
-        img_el = soup.select_one("img.ux-image-magnify__container--original")
+        img_el = soup.select_one(sel.item_image)
         if not img_el:
-            img_el = soup.select_one("div.ux-image-carousel-item img")
+            img_el = soup.select_one(sel.item_image_fallback)
         image_url = None
         if img_el:
             image_url = img_el.get("src") or img_el.get("data-src")
@@ -316,24 +367,18 @@ class EbayScraper:
                 image_url = image_url[0] if image_url else None
 
         seller = None
-        seller_el = soup.select_one("span.ux-textspanx--BOLD[data-testid='ux-seller-section__item--seller']")
+        seller_el = soup.select_one(sel.item_seller)
         if not seller_el:
-            seller_el = soup.select_one("div.x-sellercard-atf__info__about-seller a span")
+            seller_el = soup.select_one(sel.item_seller_fallback)
         if seller_el:
             seller = SellerInfo(name=seller_el.get_text(strip=True))
 
         condition = ListingCondition.NOT_SPECIFIED
-        cond_el = soup.select_one("span.ux-icon-text__text[data-testid='ux-icon-text']")
+        cond_el = soup.select_one(sel.item_condition)
         if not cond_el:
-            cond_el = soup.select_one("div.x-item-condition span.ux-textspanx")
+            cond_el = soup.select_one(sel.item_condition_fallback)
         if cond_el:
-            cond_text = cond_el.get_text(strip=True).lower()
-            if "new" in cond_text and "open" not in cond_text:
-                condition = ListingCondition.NEW
-            elif "refurbished" in cond_text:
-                condition = ListingCondition.REFURBISHED
-            elif "used" in cond_text or "pre-owned" in cond_text:
-                condition = ListingCondition.USED
+            condition = self._classify_condition(cond_el.get_text(strip=True))
 
         return Product(
             item_id=item_id,

@@ -51,11 +51,12 @@ class ScrapeValidator:
         is_valid = len(warnings) == 0
         return ValidationResult(is_valid=is_valid, warnings=warnings)
 
-    def validate_html(self, html: str) -> ValidationResult:
+    def validate_html(self, html: str, *, item_selector: str = "li.s-item") -> ValidationResult:
         """HTML の妥当性を検証する.
 
         Args:
             html: HTML文字列
+            item_selector: 検索結果アイテムのCSSセレクタ
 
         Returns:
             ValidationResult: 検証結果
@@ -64,9 +65,7 @@ class ScrapeValidator:
 
         soup = BeautifulSoup(html, "lxml")
 
-        # パース失敗の検知
-        # - s-item（eBay検索結果）がない場合
-        items = soup.select("li.s-item")
+        items = soup.select(item_selector)
         if len(items) == 0:
             warnings.append("No items found in HTML (possible parse failure or page structure change)")
 
