@@ -1,5 +1,7 @@
 """REST API のテスト."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -194,3 +196,245 @@ async def test_dashboard_with_data(client, db):
     assert data["candidates"]["pending"] == 1
     assert data["orders"]["completed"] == 1
     assert data["recent_profit"] == 3000
+
+
+# --- リサーチ API ---
+
+
+@patch("ec_hub.api.Researcher")
+async def test_research_run(mock_researcher_cls, client):
+    """POST /api/research/run returns registered count."""
+    mock_instance = AsyncMock()
+    mock_instance.run = AsyncMock(return_value=3)
+    mock_researcher_cls.return_value = mock_instance
+
+    resp = await client.post("/api/research/run", json={
+        "keywords": ["test keyword"],
+        "pages": 1,
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["registered"] == 3
+    assert data["status"] == "completed"
+
+
+@patch("ec_hub.api.Researcher")
+async def test_research_run_default_keywords(mock_researcher_cls, client):
+    """POST /api/research/run with no body uses defaults."""
+    mock_instance = AsyncMock()
+    mock_instance.run = AsyncMock(return_value=0)
+    mock_researcher_cls.return_value = mock_instance
+
+    resp = await client.post("/api/research/run", json={})
+    assert resp.status_code == 200
+
+
+# --- 出品 API ---
+
+
+async def test_listing_run(client, db):
+    """POST /api/listing/run lists approved candidates."""
+    cid = await db.add_candidate(
+        item_code="LIST01", source_site="amazon", title_jp="出品テスト",
+        title_en=None, cost_jpy=2000, ebay_price_usd=60.0,
+        net_profit_jpy=3000, margin_rate=1.5,
+    )
+    await db.update_candidate_status(cid, "approved")
+
+    resp = await client.post("/api/listing/run")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "listed_count" in data
+
+
+async def test_listing_limits(client):
+    """GET /api/listing/limits returns selling limit info."""
+    resp = await client.get("/api/listing/limits")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "current" in data
+    assert "max" in data
+    assert "remaining" in data
+
+
+# --- 注文管理 API ---
+
+
+async def test_orders_check(client):
+    """POST /api/orders/check checks for new orders."""
+    resp = await client.post("/api/orders/check")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "new_orders" in data
+
+
+async def test_orders_status_update(client, db):
+    """PUT /api/orders/{id}/status updates order status."""
+    oid = await db.add_order(
+        ebay_order_id="ORD-STATUS-001",
+        buyer_username="buyer1",
+        sale_price_usd=50.0,
+        destination_country="US",
+    )
+
+    resp = await client.put(f"/api/orders/{oid}/status", json={
+        "status": "purchased",
+        "actual_cost_jpy": 3000,
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "purchased"
+
+
+async def test_orders_status_update_shipped(client, db):
+    """PUT /api/orders/{id}/status with shipped status requires tracking."""
+    oid = await db.add_order(
+        ebay_order_id="ORD-SHIP-001",
+        buyer_username="buyer2",
+        sale_price_usd=60.0,
+        destination_country="US",
+    )
+    await db.update_order(oid, status="purchased", actual_cost_jpy=2000)
+
+    resp = await client.put(f"/api/orders/{oid}/status", json={
+        "status": "shipped",
+        "tracking_number": "JP123456789",
+        "shipping_cost_jpy": 1500,
+    })
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "shipped"
+
+
+async def test_orders_status_update_invalid(client, db):
+    """PUT /api/orders/{id}/status rejects invalid status."""
+    oid = await db.add_order(
+        ebay_order_id="ORD-INV-001",
+        buyer_username="buyer3",
+        sale_price_usd=40.0,
+    )
+    resp = await client.put(f"/api/orders/{oid}/status", json={
+        "status": "nonexistent",
+    })
+    assert resp.status_code == 400
+
+
+async def test_orders_status_update_not_found(client):
+    """PUT /api/orders/{id}/status returns 404 for missing order."""
+    resp = await client.put("/api/orders/99999/status", json={
+        "status": "purchased",
+    })
+    assert resp.status_code == 404
+
+
+# --- メッセージ API ---
+
+
+async def test_messages_empty(client):
+    """GET /api/messages returns empty list initially."""
+    resp = await client.get("/api/messages")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+async def test_messages_list(client, db):
+    """GET /api/messages returns stored messages."""
+    await db.add_message(
+        buyer_username="testbuyer",
+        body="When will my item ship?",
+        category="shipping_tracking",
+    )
+    resp = await client.get("/api/messages")
+    assert resp.status_code == 200
+    messages = resp.json()
+    assert len(messages) == 1
+    assert messages[0]["buyer_username"] == "testbuyer"
+
+
+async def test_messages_filter_by_buyer(client, db):
+    """GET /api/messages?buyer=xxx filters by buyer."""
+    await db.add_message(buyer_username="alice", body="Hello")
+    await db.add_message(buyer_username="bob", body="Hi")
+
+    resp = await client.get("/api/messages?buyer=alice")
+    messages = resp.json()
+    assert len(messages) == 1
+    assert messages[0]["buyer_username"] == "alice"
+
+
+async def test_messages_reply(client, db):
+    """POST /api/messages/{id}/reply sends a manual reply."""
+    msg_id = await db.add_message(
+        buyer_username="buyer_reply",
+        body="Is this authentic?",
+        category="condition",
+    )
+    resp = await client.post(f"/api/messages/{msg_id}/reply", json={
+        "body": "Yes, it is 100% authentic from Japan.",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["direction"] == "outbound"
+    assert data["buyer_username"] == "buyer_reply"
+
+
+async def test_messages_reply_not_found(client):
+    """POST /api/messages/{id}/reply returns 404 for missing message."""
+    resp = await client.post("/api/messages/99999/reply", json={
+        "body": "test",
+    })
+    assert resp.status_code == 404
+
+
+# --- エクスポート API ---
+
+
+async def test_export_candidates_csv(client, db):
+    """GET /api/export/candidates?format=csv returns CSV."""
+    await db.add_candidate(
+        item_code="EXP01", source_site="amazon", title_jp="エクスポートテスト",
+        title_en="Export Test", cost_jpy=1000, ebay_price_usd=30.0,
+        net_profit_jpy=1000, margin_rate=1.0,
+    )
+    resp = await client.get("/api/export/candidates?format=csv")
+    assert resp.status_code == 200
+    assert "text/csv" in resp.headers["content-type"]
+    assert "EXP01" in resp.text
+
+
+async def test_export_candidates_json(client, db):
+    """GET /api/export/candidates?format=json returns JSON."""
+    await db.add_candidate(
+        item_code="EXP02", source_site="rakuten", title_jp="JSON出力テスト",
+        title_en=None, cost_jpy=2000, ebay_price_usd=50.0,
+        net_profit_jpy=2000, margin_rate=1.0,
+    )
+    resp = await client.get("/api/export/candidates?format=json")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/json")
+    data = resp.json()
+    assert len(data) >= 1
+
+
+async def test_export_orders_csv(client, db):
+    """GET /api/export/orders?format=csv returns CSV."""
+    await db.add_order(
+        ebay_order_id="EXP-ORD-001",
+        buyer_username="exporter",
+        sale_price_usd=80.0,
+    )
+    resp = await client.get("/api/export/orders?format=csv")
+    assert resp.status_code == 200
+    assert "text/csv" in resp.headers["content-type"]
+    assert "EXP-ORD-001" in resp.text
+
+
+async def test_export_invalid_type(client):
+    """GET /api/export/invalid returns 400."""
+    resp = await client.get("/api/export/invalid")
+    assert resp.status_code == 400
+
+
+async def test_export_invalid_format(client):
+    """GET /api/export/candidates?format=xml returns 400."""
+    resp = await client.get("/api/export/candidates?format=xml")
+    assert resp.status_code == 400
