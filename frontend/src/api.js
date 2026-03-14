@@ -39,4 +39,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  comparePrice: (keyword, maxResults = 5) =>
+    request('/compare', {
+      method: 'POST',
+      body: JSON.stringify({ keyword, max_results: maxResults }),
+    }),
+
+  predictPrice: (data) =>
+    request('/predict/price', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 };

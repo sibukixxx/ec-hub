@@ -21,6 +21,7 @@ from ec_hub.config import load_fee_rules, load_settings
 from ec_hub.db import Database
 from ec_hub.modules.price_predictor import PricePredictor
 from ec_hub.modules.profit_tracker import ProfitTracker
+from ec_hub.scrapers.ebay import EbayScraper
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,11 @@ class PricePredictRequest(BaseModel):
     source_site: str = "amazon"
     category: str | None = None
     ebay_sold_count_30d: int = 0
+
+
+class CompareRequest(BaseModel):
+    keyword: str
+    max_results: int = 5
 
 
 class ProfitCalcRequest(BaseModel):
@@ -225,6 +231,62 @@ async def calc_profit(
         "total_cost": breakdown.total_cost,
         "net_profit": breakdown.net_profit,
         "margin_rate": breakdown.margin_rate,
+    }
+
+
+# --- 価格比較 ---
+
+@app.post("/api/compare")
+async def compare_prices(
+    req: CompareRequest,
+    db: Annotated[Database, Depends(get_db)],
+    settings: Annotated[dict, Depends(get_settings)],
+    fee_rules: Annotated[dict, Depends(get_fee_rules)],
+) -> dict:
+    """eBay販売価格と仕入れ候補を比較する."""
+    tracker = ProfitTracker(db, settings, fee_rules)
+    fx_rate = await tracker.get_fx_rate()
+
+    # Search eBay
+    ebay_items = []
+    async with EbayScraper() as scraper:
+        result = await scraper.search(req.keyword, page=1)
+        for p in result.products[: req.max_results]:
+            ebay_items.append({
+                "item_id": p.item_id,
+                "title": p.title,
+                "price_usd": p.price,
+                "price_jpy": int((p.price or 0) * fx_rate),
+                "url": p.url,
+                "image_url": p.image_url,
+                "condition": p.condition.value if p.condition else None,
+                "shipping": {
+                    "cost": p.shipping.cost if p.shipping else None,
+                    "free": p.shipping.free_shipping if p.shipping else False,
+                },
+            })
+
+    # Search candidates DB for matching items
+    candidates = await db.get_candidates(limit=200)
+    keyword_lower = req.keyword.lower()
+    matched = []
+    for c in candidates:
+        title = (c.get("title_jp") or "") + " " + (c.get("title_en") or "")
+        if keyword_lower in title.lower():
+            matched.append(c)
+
+    # ML prediction
+    predictor = PricePredictor(db)
+    predictor.load()
+    if not predictor.is_trained:
+        await predictor.train(min_samples=5)
+
+    return {
+        "keyword": req.keyword,
+        "fx_rate": fx_rate,
+        "ebay_items": ebay_items,
+        "source_candidates": matched[:10],
+        "predictor_trained": predictor.is_trained,
     }
 
 
