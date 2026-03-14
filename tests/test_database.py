@@ -497,3 +497,86 @@ async def test_upsert_candidate_different_ebay_item_creates_new(db):
     )
     candidates = await db.get_candidates()
     assert len(candidates) == 2
+
+
+# --- job_runs ---
+
+
+async def test_create_job_run_returns_id(db):
+    run_id = await db.create_job_run(job_name="research", params={"keywords": ["test"]})
+    assert run_id is not None
+    assert isinstance(run_id, int)
+
+
+async def test_complete_job_run_records_result(db):
+    run_id = await db.create_job_run(job_name="listing")
+    await db.complete_job_run(run_id, items_processed=5, warnings=1, errors=0)
+    run = await db.get_job_run(run_id)
+    assert run is not None
+    assert run["job_name"] == "listing"
+    assert run["status"] == "completed"
+    assert run["items_processed"] == 5
+    assert run["warnings"] == 1
+    assert run["errors"] == 0
+    assert run["completed_at"] is not None
+
+
+async def test_fail_job_run_records_error(db):
+    run_id = await db.create_job_run(job_name="order_check")
+    await db.fail_job_run(run_id, error_message="eBay API timeout")
+    run = await db.get_job_run(run_id)
+    assert run["status"] == "failed"
+    assert run["error_message"] == "eBay API timeout"
+    assert run["completed_at"] is not None
+
+
+async def test_get_job_runs_returns_recent_first(db):
+    await db.create_job_run(job_name="research")
+    await db.create_job_run(job_name="listing")
+    await db.create_job_run(job_name="order_check")
+    runs = await db.get_job_runs(limit=10)
+    assert len(runs) == 3
+    assert runs[0]["job_name"] == "order_check"  # most recent first
+
+
+async def test_get_job_runs_filters_by_job_name(db):
+    await db.create_job_run(job_name="research")
+    await db.create_job_run(job_name="listing")
+    await db.create_job_run(job_name="research")
+    runs = await db.get_job_runs(job_name="research", limit=10)
+    assert len(runs) == 2
+    assert all(r["job_name"] == "research" for r in runs)
+
+
+# --- integration_status ---
+
+
+async def test_upsert_integration_status_creates_new(db):
+    await db.upsert_integration_status(
+        service_name="ebay_api", status="ok",
+    )
+    statuses = await db.get_all_integration_status()
+    assert len(statuses) == 1
+    assert statuses[0]["service_name"] == "ebay_api"
+    assert statuses[0]["status"] == "ok"
+
+
+async def test_upsert_integration_status_updates_existing(db):
+    await db.upsert_integration_status(service_name="ebay_api", status="ok")
+    await db.upsert_integration_status(
+        service_name="ebay_api", status="degraded", error_message="Rate limited",
+    )
+    statuses = await db.get_all_integration_status()
+    assert len(statuses) == 1
+    assert statuses[0]["status"] == "degraded"
+    assert statuses[0]["error_message"] == "Rate limited"
+
+
+async def test_get_all_integration_status_returns_multiple(db):
+    await db.upsert_integration_status(service_name="ebay_api", status="ok")
+    await db.upsert_integration_status(service_name="deepl", status="unavailable")
+    await db.upsert_integration_status(service_name="amazon_api", status="ok")
+    statuses = await db.get_all_integration_status()
+    assert len(statuses) == 3
+    names = {s["service_name"] for s in statuses}
+    assert names == {"ebay_api", "deepl", "amazon_api"}

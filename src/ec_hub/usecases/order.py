@@ -65,11 +65,18 @@ class OrderUseCase:
         return {"id": order_id, "status": status}
 
     async def check_new_orders(self) -> int:
+        from ec_hub.modules.job_runner import JobRunner
+
         manager = OrderManager(self._ctx.db, self._ctx.settings, self._ctx.fee_rules)
-        try:
-            new_orders = await manager.check_new_orders()
-            for order_data in new_orders:
-                await manager.register_order(**order_data)
-            return len(new_orders)
-        finally:
-            await manager.close()
+
+        async def _execute() -> int:
+            try:
+                new_orders = await manager.check_new_orders()
+                for order_data in new_orders:
+                    await manager.register_order(**order_data)
+                return len(new_orders)
+            finally:
+                await manager.close()
+
+        runner = JobRunner(self._ctx.db)
+        return await runner.run("order_check", _execute)
