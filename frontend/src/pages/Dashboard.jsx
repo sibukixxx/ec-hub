@@ -12,11 +12,22 @@ export function Dashboard() {
   if (error) return <div class="loading">Error: {error}</div>;
   if (!data) return <div class="loading">Loading...</div>;
 
-  const { candidates, orders, recent_profit, fx_rate } = data;
+  const { candidates, orders, recent_profit, fx_rate, health = [] } = data;
+  const exchangeRateHealth = health.find((service) => service.service_name === 'exchange_rate');
+  const exchangeRateWarning = exchangeRateHealth && exchangeRateHealth.status !== 'ok'
+    ? exchangeRateHealth
+    : null;
 
   return (
     <div>
       <h2 class="page-title">Dashboard</h2>
+
+      {exchangeRateWarning && (
+        <div class="alert alert-warning">
+          <strong>Exchange rate fallback in use.</strong>
+          <div>{exchangeRateWarning.error_message || 'Using a degraded exchange rate source.'}</div>
+        </div>
+      )}
 
       <div class="cards">
         <div class="card">

@@ -184,3 +184,16 @@ async def test_notify_daily_report(notifier):
     assert "150,000" in sent_text
     assert "45,000" in sent_text
     assert "12" in sent_text
+
+
+async def test_notify_exchange_rate_warning(notifier):
+    """notify_exchange_rate_warning のメッセージに警告内容が含まれる."""
+    mock_client = _mock_httpx_client()
+
+    with patch("ec_hub.modules.notifier.httpx.AsyncClient", return_value=mock_client):
+        result = await notifier.notify_exchange_rate_warning("Using static fallback 150.00")
+
+    assert result is True
+    sent_text = mock_client.post.call_args[1]["json"]["messages"][0]["text"]
+    assert "為替レート警告" in sent_text
+    assert "Using static fallback 150.00" in sent_text

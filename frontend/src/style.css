@@ -81,6 +81,24 @@ a:hover {
   margin-bottom: 1.5rem;
 }
 
+.alert {
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.alert strong {
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.alert-warning {
+  background: rgba(234, 179, 8, 0.12);
+  border-color: rgba(234, 179, 8, 0.35);
+  color: #fde68a;
+}
+
 /* Cards grid */
 .cards {
   display: grid;

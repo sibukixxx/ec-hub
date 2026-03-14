@@ -1,5 +1,9 @@
 """利益計算のテスト."""
 
+from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import httpx
 import pytest
 
 from ec_hub.db import Database
@@ -33,8 +37,14 @@ def fee_rules():
 @pytest.fixture
 def settings():
     return {
-        "exchange_rate": {"fallback_rate": 150.0},
+        "exchange_rate": {
+            "base_url": "https://primary.example/latest/USD",
+            "fallback_urls": ["https://fallback.example/latest/USD"],
+            "fallback_rate": 150.0,
+            "cache_ttl_minutes": 60,
+        },
         "database": {"path": ":memory:"},
+        "line": {},
     }
 
 
@@ -49,6 +59,21 @@ async def db():
 @pytest.fixture
 def tracker(db, settings, fee_rules):
     return ProfitTracker(db, settings, fee_rules)
+
+
+def _mock_response(payload: dict) -> MagicMock:
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json = MagicMock(return_value=payload)
+    return response
+
+
+def _mock_httpx_client(*, get_side_effect=None):
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(side_effect=get_side_effect)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    return mock_client
 
 
 def test_calc_shipping(tracker):
@@ -116,3 +141,98 @@ def test_calc_net_profit_margin_too_low(tracker):
     )
     # 仕入れが高いので利益率は低い
     assert breakdown.margin_rate < 0.30
+
+
+async def test_get_fx_rate_fetches_from_fallback_api_and_persists_cache(db, settings, fee_rules):
+    tracker = ProfitTracker(db, settings, fee_rules)
+    tracker._notifier.notify_exchange_rate_warning = AsyncMock(return_value=True)
+    mock_client = _mock_httpx_client(
+        get_side_effect=[
+            httpx.HTTPError("primary unavailable"),
+            _mock_response({"conversion_rates": {"JPY": 161.25}}),
+        ]
+    )
+
+    with patch("ec_hub.modules.profit_tracker.httpx.AsyncClient", return_value=mock_client):
+        rate = await tracker.get_fx_rate()
+
+    assert rate == 161.25
+    cache = await db.get_exchange_rate_cache()
+    assert cache is not None
+    assert cache["rate"] == 161.25
+    assert cache["source"] == "https://fallback.example/latest/USD"
+
+    status = await db.get_integration_status("exchange_rate")
+    assert status is not None
+    assert status["status"] == "ok"
+    assert status["error_message"] == "Fetched from https://fallback.example/latest/USD"
+    tracker._notifier.notify_exchange_rate_warning.assert_not_awaited()
+
+
+async def test_get_fx_rate_uses_fresh_db_cache_without_http(db, settings, fee_rules):
+    await db.upsert_exchange_rate_cache(
+        base_currency="USD",
+        quote_currency="JPY",
+        rate=158.4,
+        source="https://cache.example/latest/USD",
+        fetched_at=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+    )
+    tracker = ProfitTracker(db, settings, fee_rules)
+    tracker._notifier.notify_exchange_rate_warning = AsyncMock(return_value=True)
+
+    with patch("ec_hub.modules.profit_tracker.httpx.AsyncClient") as client_cls:
+        rate = await tracker.get_fx_rate()
+
+    assert rate == 158.4
+    client_cls.assert_not_called()
+
+    status = await db.get_integration_status("exchange_rate")
+    assert status is not None
+    assert status["status"] == "ok"
+    assert "Using cached rate 158.40" in status["error_message"]
+    tracker._notifier.notify_exchange_rate_warning.assert_not_awaited()
+
+
+async def test_get_fx_rate_uses_stale_db_cache_when_apis_fail(db, settings, fee_rules):
+    await db.upsert_exchange_rate_cache(
+        base_currency="USD",
+        quote_currency="JPY",
+        rate=152.3,
+        source="https://cache.example/latest/USD",
+        fetched_at=(datetime.now(timezone.utc) - timedelta(hours=3)).isoformat(),
+    )
+    tracker = ProfitTracker(db, settings, fee_rules)
+    tracker._notifier.notify_exchange_rate_warning = AsyncMock(return_value=True)
+    mock_client = _mock_httpx_client(get_side_effect=httpx.HTTPError("all providers unavailable"))
+
+    with patch("ec_hub.modules.profit_tracker.httpx.AsyncClient", return_value=mock_client):
+        first_rate = await tracker.get_fx_rate()
+        second_rate = await tracker.get_fx_rate()
+
+    assert first_rate == 152.3
+    assert second_rate == 152.3
+
+    status = await db.get_integration_status("exchange_rate")
+    assert status is not None
+    assert status["status"] == "degraded"
+    assert "Using last known rate 152.30" in status["error_message"]
+    tracker._notifier.notify_exchange_rate_warning.assert_awaited_once()
+
+
+async def test_get_fx_rate_uses_static_fallback_when_no_cache_exists(db, settings, fee_rules):
+    tracker = ProfitTracker(db, settings, fee_rules)
+    tracker._notifier.notify_exchange_rate_warning = AsyncMock(return_value=True)
+    mock_client = _mock_httpx_client(get_side_effect=httpx.HTTPError("all providers unavailable"))
+
+    with patch("ec_hub.modules.profit_tracker.httpx.AsyncClient", return_value=mock_client):
+        first_rate = await tracker.get_fx_rate()
+        second_rate = await tracker.get_fx_rate()
+
+    assert first_rate == 150.0
+    assert second_rate == 150.0
+
+    status = await db.get_integration_status("exchange_rate")
+    assert status is not None
+    assert status["status"] == "degraded"
+    assert "Using static fallback 150.00" in status["error_message"]
+    tracker._notifier.notify_exchange_rate_warning.assert_awaited_once()

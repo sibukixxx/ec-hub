@@ -41,7 +41,11 @@ yahoo_shopping:
 # 為替レート API
 exchange_rate:
   base_url: "https://api.exchangerate-api.com/v4/latest/USD"
+  fallback_urls:
+    - "https://open.er-api.com/v6/latest/USD"
+    - "https://api.frankfurter.app/latest?from=USD&to=JPY"
   fallback_rate: 150.0  # APIエラー時のフォールバック (USD→JPY)
+  cache_ttl_minutes: 60  # レート更新間隔（分）
 
 # データベース
 database:

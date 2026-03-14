@@ -644,3 +644,61 @@ async def test_get_all_integration_status_returns_multiple(db):
     assert len(statuses) == 3
     names = {s["service_name"] for s in statuses}
     assert names == {"ebay_api", "deepl", "amazon_api"}
+
+
+async def test_get_integration_status_returns_single_service(db):
+    await db.upsert_integration_status(
+        service_name="exchange_rate",
+        status="degraded",
+        error_message="Using static fallback 150.00",
+    )
+
+    status = await db.get_integration_status("exchange_rate")
+    assert status is not None
+    assert status["service_name"] == "exchange_rate"
+    assert status["status"] == "degraded"
+    assert status["error_message"] == "Using static fallback 150.00"
+
+
+# --- exchange_rate_cache ---
+
+
+async def test_upsert_and_get_exchange_rate_cache(db):
+    await db.upsert_exchange_rate_cache(
+        base_currency="USD",
+        quote_currency="JPY",
+        rate=157.2,
+        source="https://fx.example/latest/USD",
+        fetched_at="2026-03-14T12:00:00+00:00",
+    )
+
+    cached = await db.get_exchange_rate_cache()
+    assert cached is not None
+    assert cached["base_currency"] == "USD"
+    assert cached["quote_currency"] == "JPY"
+    assert cached["rate"] == 157.2
+    assert cached["source"] == "https://fx.example/latest/USD"
+    assert cached["fetched_at"] == "2026-03-14T12:00:00+00:00"
+
+
+async def test_upsert_exchange_rate_cache_updates_existing_record(db):
+    await db.upsert_exchange_rate_cache(
+        base_currency="USD",
+        quote_currency="JPY",
+        rate=155.0,
+        source="https://primary.example/latest/USD",
+        fetched_at="2026-03-14T10:00:00+00:00",
+    )
+    await db.upsert_exchange_rate_cache(
+        base_currency="USD",
+        quote_currency="JPY",
+        rate=156.8,
+        source="https://fallback.example/latest/USD",
+        fetched_at="2026-03-14T11:00:00+00:00",
+    )
+
+    cached = await db.get_exchange_rate_cache()
+    assert cached is not None
+    assert cached["rate"] == 156.8
+    assert cached["source"] == "https://fallback.example/latest/USD"
+    assert cached["fetched_at"] == "2026-03-14T11:00:00+00:00"

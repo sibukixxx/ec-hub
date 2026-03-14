@@ -132,6 +132,8 @@ class TestLoadSettingsReturnsTypedModel:
         assert s.research.match_threshold == 40.0
         assert s.listing.max_daily_listings == 10
         assert s.exchange_rate.fallback_rate == 150.0
+        assert s.exchange_rate.cache_ttl_minutes == 60
+        assert len(s.exchange_rate.fallback_urls) == 2
 
     def test_yahoo_shopping_defaults_to_empty(self, settings_yaml: Path):
         s = load_settings(settings_yaml)
@@ -167,6 +169,15 @@ class TestLoadSettingsValidation:
 
         result = load_settings(p)
         assert result.research.match_threshold == 60.0
+
+    def test_non_positive_exchange_rate_cache_ttl_is_rejected(self, tmp_path: Path):
+        data = yaml.safe_load(MINIMAL_SETTINGS_YAML)
+        data["exchange_rate"] = {"cache_ttl_minutes": 0}
+        p = tmp_path / "bad-ttl.yaml"
+        p.write_text(yaml.dump(data), encoding="utf-8")
+
+        with pytest.raises(Exception):
+            load_settings(p)
 
     def test_missing_file_raises(self, tmp_path: Path):
         with pytest.raises(FileNotFoundError):

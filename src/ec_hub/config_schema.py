@@ -99,7 +99,19 @@ class YahooShoppingConfig(_ConfigModel):
 
 class ExchangeRateConfig(_ConfigModel):
     base_url: str = "https://api.exchangerate-api.com/v4/latest/USD"
+    fallback_urls: list[str] = Field(default_factory=lambda: [
+        "https://open.er-api.com/v6/latest/USD",
+        "https://api.frankfurter.app/latest?from=USD&to=JPY",
+    ])
     fallback_rate: float = 150.0
+    cache_ttl_minutes: int = 60
+
+    @field_validator("cache_ttl_minutes")
+    @classmethod
+    def ttl_must_be_positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("cache_ttl_minutes must be > 0")
+        return v
 
 
 class DatabaseConfig(_ConfigModel):

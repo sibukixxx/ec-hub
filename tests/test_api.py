@@ -547,4 +547,6 @@ async def test_dashboard_includes_job_runs_and_health(client, ctx):
     assert "recent_jobs" in data
     assert len(data["recent_jobs"]) == 1
     assert "health" in data
-    assert len(data["health"]) == 1
+    health_names = {entry["service_name"] for entry in data["health"]}
+    assert "ebay_api" in health_names
+    assert "exchange_rate" in health_names

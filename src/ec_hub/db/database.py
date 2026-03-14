@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import aiosqlite
@@ -134,6 +134,16 @@ CREATE TABLE IF NOT EXISTS integration_status (
     last_checked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS exchange_rate_cache (
+    base_currency TEXT NOT NULL,
+    quote_currency TEXT NOT NULL,
+    rate REAL NOT NULL,
+    source TEXT NOT NULL,
+    fetched_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (base_currency, quote_currency)
+);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_dedup
     ON candidates(source_site, item_code, ebay_item_id)
     WHERE ebay_item_id IS NOT NULL;
@@ -149,6 +159,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_buyer ON messages(buyer_username);
 CREATE INDEX IF NOT EXISTS idx_messages_listing ON messages(listing_id);
 CREATE INDEX IF NOT EXISTS idx_job_runs_job_name ON job_runs(job_name);
 CREATE INDEX IF NOT EXISTS idx_job_runs_started_at ON job_runs(started_at);
+CREATE INDEX IF NOT EXISTS idx_exchange_rate_cache_updated_at ON exchange_rate_cache(updated_at);
 """
 
 
@@ -916,3 +927,50 @@ class Database:
         )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+    async def get_integration_status(self, service_name: str) -> dict | None:
+        cursor = await self.db.execute(
+            "SELECT * FROM integration_status WHERE service_name = ?",
+            (service_name,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    # --- Exchange Rate Cache ---
+
+    async def upsert_exchange_rate_cache(
+        self,
+        *,
+        base_currency: str,
+        quote_currency: str,
+        rate: float,
+        source: str,
+        fetched_at: str | None = None,
+    ) -> None:
+        timestamp = fetched_at or datetime.now(timezone.utc).isoformat()
+        await self.db.execute(
+            """INSERT INTO exchange_rate_cache
+            (base_currency, quote_currency, rate, source, fetched_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(base_currency, quote_currency) DO UPDATE SET
+                rate = excluded.rate,
+                source = excluded.source,
+                fetched_at = excluded.fetched_at,
+                updated_at = CURRENT_TIMESTAMP""",
+            (base_currency, quote_currency, rate, source, timestamp),
+        )
+        await self.db.commit()
+
+    async def get_exchange_rate_cache(
+        self,
+        *,
+        base_currency: str = "USD",
+        quote_currency: str = "JPY",
+    ) -> dict | None:
+        cursor = await self.db.execute(
+            """SELECT * FROM exchange_rate_cache
+            WHERE base_currency = ? AND quote_currency = ?""",
+            (base_currency, quote_currency),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
