@@ -10,6 +10,8 @@ eBay商品と仕入れ商品の類似度スコアを計算し、
 - 数量/セット数一致 (0-10点)
 - 価格乖離ペナルティ (-20〜0点)
 - カテゴリ一致ボーナス (0-5点)
+- レビュー数ボーナス (0-5点)
+- 高評価ボーナス (0-5点)
 """
 
 from __future__ import annotations
@@ -281,6 +283,8 @@ def calc_match_score(
     fx_rate: float = 150.0,
     ebay_category: str | None = None,
     source_category: str | None = None,
+    source_review_count: int | None = None,
+    source_rating: float | None = None,
 ) -> dict:
     """eBay商品と仕入れ商品のマッチスコアを計算する.
 
@@ -386,6 +390,18 @@ def calc_match_score(
             details["category_match"] = False
     else:
         details["category_match"] = None
+
+    # 7. Review count bonus (0-5 points)
+    details["source_review_count"] = source_review_count
+    if source_review_count is not None and source_review_count >= 10:
+        score += 5
+        reasons.append(f"レビュー数: {source_review_count}件")
+
+    # 8. Rating bonus (0-5 points)
+    details["source_rating"] = source_rating
+    if source_rating is not None and source_rating >= 4.0:
+        score += 5
+        reasons.append(f"高評価: {source_rating}")
 
     # Clamp score to 0-100
     score = max(0, min(100, score))
