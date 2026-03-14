@@ -9,7 +9,6 @@ from ec_hub.modules.messenger import (
     _ClaudeClassifier,
 )
 
-
 # --- キーワード分類テスト (フォールバック) ---
 
 def test_classify_shipping():

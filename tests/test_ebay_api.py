@@ -1,6 +1,6 @@
 """eBay API クライアントのテスト."""
 
-from ec_hub.services.ebay_api import EbayApiClient, EBAY_API_SANDBOX, EBAY_API_PRODUCTION
+from ec_hub.services.ebay_api import EBAY_API_PRODUCTION, EBAY_API_SANDBOX, EbayApiClient
 
 
 def test_ebay_api_not_configured():

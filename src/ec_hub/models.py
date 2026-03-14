@@ -7,7 +7,6 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
-
 # --- eBay商品関連 ---
 
 class ListingCondition(str, Enum):
