@@ -166,7 +166,7 @@ def calc(cost: int, price: float, weight: int, dest: str) -> None:
 
 
 async def _calc(cost: int, price: float, weight: int, dest: str) -> None:
-    async with AppContext.create() as ctx:
+    async with AppContext.create(validate_services=True) as ctx:
         uc = ProfitCalcUseCase(ctx)
         breakdown = await uc.calculate(
             cost_jpy=cost, ebay_price_usd=price, weight_g=weight, destination=dest,
@@ -220,7 +220,7 @@ def research(queries: tuple[str, ...], pages: int) -> None:
 async def _research(queries: list[str] | None, pages: int) -> None:
     from ec_hub.usecases.research import ResearchUseCase
 
-    async with AppContext.create() as ctx:
+    async with AppContext.create(validate_services=True) as ctx:
         uc = ResearchUseCase(ctx)
         console.print("[bold blue]リサーチを開始...[/]")
         count = await uc.run(keywords=queries, pages=pages)
@@ -266,7 +266,7 @@ def candidates(status: str | None, limit: int) -> None:
 
 
 async def _candidates(status: str | None, limit: int) -> None:
-    async with AppContext.create() as ctx:
+    async with AppContext.create(validate_services=True) as ctx:
         rows = await ctx.candidates.list(status=status, limit=limit)
 
     if not rows:
@@ -314,7 +314,7 @@ def orders(status: str | None, limit: int) -> None:
 
 
 async def _orders(status: str | None, limit: int) -> None:
-    async with AppContext.create() as ctx:
+    async with AppContext.create(validate_services=True) as ctx:
         rows = await ctx.orders.list(status=status, limit=limit)
 
     if not rows:

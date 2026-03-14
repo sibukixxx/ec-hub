@@ -35,6 +35,9 @@ class DashboardUseCase:
         tracker = ProfitTracker(self._ctx.db, self._ctx.settings, self._ctx.fee_rules)
         fx_rate = await tracker.get_fx_rate()
 
+        recent_jobs = await self._ctx.db.get_job_runs(limit=5)
+        health = await self._ctx.db.get_all_integration_status()
+
         return {
             "candidates": {
                 "pending": pending,
@@ -48,4 +51,6 @@ class DashboardUseCase:
             },
             "recent_profit": total_profit,
             "fx_rate": fx_rate,
+            "recent_jobs": recent_jobs,
+            "health": health,
         }

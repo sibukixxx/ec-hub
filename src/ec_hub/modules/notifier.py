@@ -89,3 +89,7 @@ class Notifier:
             f"利益: ¥{report['total_profit_jpy']:,}\n"
             f"新規候補: {report['new_candidates_count']} 件"
         )
+
+    async def notify_exchange_rate_warning(self, message: str) -> bool:
+        """為替レート劣化時の警告通知."""
+        return await self.send(f"[ec-hub] 為替レート警告\n{message}")

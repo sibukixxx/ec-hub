@@ -30,3 +30,8 @@ Web UI から設定を管理できるようにする。
 - `src/ec_hub/config.py`
 - `config/settings.yaml`
 - `config/fee_rules.yaml`
+
+## 残課題
+- `/api/config` 系エンドポイントは未実装で、設定取得・更新・接続テストを API から行えない
+- フロントエンドに設定ページや接続確認 UI はまだ存在しない
+- マスク表示、更新時バリデーション、機密情報の安全な保存方針も未実装

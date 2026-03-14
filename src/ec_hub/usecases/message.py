@@ -31,6 +31,8 @@ class MessageUseCase:
             body=body,
             direction="outbound",
             order_id=original.get("order_id"),
+            listing_id=original.get("listing_id"),
+            candidate_id=original.get("candidate_id"),
             category=original.get("category"),
         )
         return {
@@ -38,4 +40,7 @@ class MessageUseCase:
             "buyer_username": original["buyer_username"],
             "direction": "outbound",
             "body": body,
+            "order_id": original.get("order_id"),
+            "listing_id": original.get("listing_id"),
+            "candidate_id": original.get("candidate_id"),
         }

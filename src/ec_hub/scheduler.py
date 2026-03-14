@@ -105,13 +105,15 @@ class Scheduler:
                 continue
 
             func = _JOB_FUNCS[job_name]
+            cron_expr = config.get("cron")
+            interval_minutes = config.get("interval_minutes")
 
-            if "cron" in config:
-                trigger = _parse_cron(config["cron"])
-                trigger_desc = f"cron: {config['cron']}"
-            elif "interval_minutes" in config:
-                trigger = IntervalTrigger(minutes=config["interval_minutes"])
-                trigger_desc = f"interval: {config['interval_minutes']}min"
+            if cron_expr:
+                trigger = _parse_cron(cron_expr)
+                trigger_desc = f"cron: {cron_expr}"
+            elif interval_minutes is not None:
+                trigger = IntervalTrigger(minutes=interval_minutes)
+                trigger_desc = f"interval: {interval_minutes}min"
             else:
                 logger.warning("ジョブ %s にトリガー設定がありません", job_name)
                 continue

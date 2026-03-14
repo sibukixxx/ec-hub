@@ -85,6 +85,30 @@ class Lister:
             )
         return self._ebay_api
 
+    async def _prepare_listing_record(
+        self,
+        *,
+        candidate_id: int,
+        sku: str,
+        title_en: str,
+        description_html: str,
+        listing_price: float,
+        fx_rate: float,
+    ) -> int | None:
+        existing = await self._db.get_listing_by_sku(sku)
+        if existing and existing.get("status") in {"active", "sold"}:
+            logger.warning("既存の出品レコードが存在します: sku=%s, status=%s", sku, existing.get("status"))
+            return None
+        return await self._db.upsert_listing(
+            candidate_id=candidate_id,
+            sku=sku,
+            title_en=title_en,
+            description_html=description_html,
+            listed_price_usd=listing_price,
+            listed_fx_rate=fx_rate,
+            status="draft",
+        )
+
     async def translate_title(self, title_jp: str) -> str:
         """日本語タイトルを英語に翻訳する."""
         translator = self._get_translator()
@@ -163,17 +187,20 @@ class Lister:
         # 4. eBay API出品
         ebay_api = self._get_ebay_api()
         sku = f"ECHUB-{candidate_id}"
+        listing_row_id = await self._prepare_listing_record(
+            candidate_id=candidate_id,
+            sku=sku,
+            title_en=title_en,
+            description_html=description_html,
+            listing_price=listing_price,
+            fx_rate=fx_rate,
+        )
+        if listing_row_id is None:
+            return False
 
         if not ebay_api.is_configured:
             logger.warning("eBay API未設定。出品をシミュレーションのみ実行。")
-            await self._db.add_listing(
-                candidate_id=candidate_id,
-                sku=sku,
-                title_en=title_en,
-                description_html=description_html,
-                listed_price_usd=listing_price,
-                listed_fx_rate=fx_rate,
-            )
+            await self._db.update_listing(listing_row_id, status="active")
             await self._db.update_candidate_status(candidate_id, "listed")
             return True
 
@@ -186,6 +213,7 @@ class Lister:
                 image_urls=[target.get("image_url")] if target.get("image_url") else [],
                 weight_kg=weight_g / 1000,
             )
+            await self._db.update_listing(listing_row_id, status="publishing")
 
             offer_data = await ebay_api.create_offer(
                 sku,
@@ -200,36 +228,33 @@ class Lister:
                 publish_data = await ebay_api.publish_offer(offer_id)
                 listing_id = publish_data.get("listingId")
 
-            await self._db.add_listing(
-                candidate_id=candidate_id,
-                sku=sku,
-                title_en=title_en,
-                description_html=description_html,
-                listed_price_usd=listing_price,
-                listed_fx_rate=fx_rate,
+            await self._db.update_listing(
+                listing_row_id,
                 offer_id=offer_id,
                 listing_id=listing_id,
+                status="active",
             )
             await self._db.update_candidate_status(candidate_id, "listed")
             logger.info("出品完了: %s ($%.2f)", title_en[:30], listing_price)
             return True
 
         except Exception as e:
+            await self._db.update_listing(listing_row_id, status="failed")
             logger.error("eBay出品失敗: %s - %s", title_jp[:30], e)
             return False
 
     async def check_selling_limit(self) -> dict:
         """セリングリミットの残りを確認する."""
+        current = await self._db.count_listings_by_status("active")
         ebay_api = self._get_ebay_api()
         if not ebay_api.is_configured:
-            return {"current": 0, "max": 100, "remaining": 100}
+            max_limit = 100
+            return {"current": current, "max": max_limit, "remaining": max(0, max_limit - current)}
 
         try:
             limit_data = await ebay_api.get_selling_limit()
             quantity_limit = limit_data.get("quantity_limit", 100) or 100
 
-            listed = await self._db.get_candidates(status="listed", limit=1000)
-            current = len(listed)
             remaining = max(0, quantity_limit - current)
 
             if remaining <= self.limit_warning_threshold:

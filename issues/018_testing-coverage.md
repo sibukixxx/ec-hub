@@ -28,3 +28,7 @@
 
 ## 関連ファイル
 - `tests/`
+
+## 残課題
+- バックエンド側は REST API、scraper 耐障害化、Amazon/Rakuten/Yahoo クライアント、Translator、Lister、OrderManager、eBay API、Notifier、Scheduler までテストが増えた一方、フロントエンド用のテストランナーとコンポーネントテスト基盤は未導入
+- 画面操作から API まで通した E2E シナリオは未整備で、管理画面の回帰確認を自動化できていない

@@ -35,3 +35,8 @@
 - `src/ec_hub/models.py`
 - `frontend/src/pages/Compare.jsx`
 - `frontend/src/pages/Candidates.jsx`
+
+## 残課題
+- `matcher.py` による正規化・採点と `match_score` / `match_reason` 保存は入ったが、Compare / Candidates 画面に一致根拠の表示がない
+- `ResearchConfig.match_threshold` の既定値は `0.6` だが、実際のスコアは `0-100` で評価しており、閾値の単位を揃える必要がある
+- レビュー・在庫・画像などの追加根拠はまだスコアへ入っておらず、タイトル / 型番 / 数量 / 価格 / カテゴリ中心の判定に留まっている

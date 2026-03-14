@@ -49,6 +49,80 @@ class OrderManager:
             )
         return self._ebay_api
 
+    @staticmethod
+    def _extract_line_items(order: dict) -> list[dict]:
+        line_items = order.get("lineItems") or order.get("lineItemSummaries") or []
+        return [item for item in line_items if isinstance(item, dict)]
+
+    async def _resolve_listing_from_line_item(self, line_item: dict) -> dict | None:
+        sku = (
+            line_item.get("sku")
+            or line_item.get("lineItemSku")
+            or line_item.get("inventoryReferenceId")
+        )
+        if sku:
+            listing = await self._db.get_listing_by_sku(str(sku))
+            if listing:
+                return listing
+
+        external_listing_id = line_item.get("listingId") or line_item.get("legacyItemId")
+        if external_listing_id:
+            listing = await self._db.get_listing_by_external_id(str(external_listing_id))
+            if listing:
+                return listing
+
+        offer_id = line_item.get("offerId")
+        if offer_id:
+            return await self._db.get_listing_by_offer_id(str(offer_id))
+
+        return None
+
+    async def _resolve_order_traceability(self, order: dict) -> tuple[int | None, int | None]:
+        resolved_listing_ids: list[int] = []
+        resolved_candidate_ids: list[int] = []
+
+        for line_item in self._extract_line_items(order):
+            listing = await self._resolve_listing_from_line_item(line_item)
+            if not listing:
+                continue
+            resolved_listing_ids.append(int(listing["id"]))
+            candidate_id = listing.get("candidate_id")
+            if candidate_id is not None:
+                resolved_candidate_ids.append(int(candidate_id))
+
+        listing_id = resolved_listing_ids[0] if resolved_listing_ids else None
+        candidate_id = resolved_candidate_ids[0] if resolved_candidate_ids else None
+
+        if len(set(resolved_listing_ids)) > 1:
+            logger.warning(
+                "複数出品が紐付く注文を検出。先頭の出品を採用: order=%s, listings=%s",
+                order.get("orderId", ""),
+                resolved_listing_ids,
+            )
+
+        return candidate_id, listing_id
+
+    async def _sync_traceability_states(
+        self,
+        *,
+        candidate_id: int | None,
+        listing_id: int | None,
+    ) -> None:
+        if candidate_id is None and listing_id is not None:
+            listing = await self._db.get_listing_by_id(listing_id)
+            if listing:
+                candidate_id = listing.get("candidate_id")
+
+        if candidate_id is not None:
+            candidate = await self._db.get_candidate_by_id(candidate_id)
+            if candidate and candidate.get("status") != "listed":
+                await self._db.update_candidate_status(candidate_id, "listed")
+
+        if listing_id is not None:
+            listing = await self._db.get_listing_by_id(listing_id)
+            if listing and listing.get("status") != "sold":
+                await self._db.update_listing(listing_id, status="sold")
+
     async def check_new_orders(self) -> list[dict]:
         """eBay Fulfillment APIで新規注文を確認する."""
         ebay_api = self._get_ebay_api()
@@ -83,21 +157,16 @@ class OrderManager:
             shipping_step = ship_to.get("shippingStep", {})
             ship_to_address = shipping_step.get("shipTo", {}).get("contactAddress", {})
             country = ship_to_address.get("countryCode", "US")
+            candidate_id, listing_id = await self._resolve_order_traceability(order)
 
             order_data: dict = {
                 "ebay_order_id": order_id,
                 "buyer_username": buyer,
                 "sale_price_usd": sale_price,
                 "destination_country": country,
+                "candidate_id": candidate_id,
+                "listing_id": listing_id,
             }
-
-            # Resolve listing/candidate from line items SKU
-            line_items = order.get("lineItems", [])
-            resolved = await self.resolve_listing_from_line_items(line_items)
-            if resolved:
-                order_data["listing_id"] = resolved["listing_id"]
-                order_data["candidate_id"] = resolved["candidate_id"]
-
             new_orders.append(order_data)
 
         return new_orders
@@ -137,11 +206,7 @@ class OrderManager:
             sale_price_usd=sale_price_usd,
             destination_country=destination_country,
         )
-
-        # Update listing status to sold
-        if listing_id is not None:
-            await self._db.update_listing(listing_id, status="sold")
-
+        await self._sync_traceability_states(candidate_id=candidate_id, listing_id=listing_id)
         await self._notifier.notify_order(ebay_order_id, sale_price_usd)
         logger.info("注文登録: %s ($%.2f) → %s", ebay_order_id, sale_price_usd, destination_country)
         return order_id

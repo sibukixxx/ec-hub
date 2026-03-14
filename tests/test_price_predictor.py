@@ -209,6 +209,18 @@ async def test_save_and_load(predictor, db, tmp_path):
     assert orig.predicted_price_usd == loaded_result.predicted_price_usd
 
 
+def test_save_uses_configured_default_path(tmp_path):
+    """設定済みの既定パスにモデルを保存する."""
+    model_path = tmp_path / "configured-model.pkl"
+    configured_predictor = PricePredictor(Database(":memory:"), settings={
+        "paths": {
+            "price_model_path": str(model_path),
+        },
+    })
+    configured_predictor.save()
+    assert model_path.exists()
+
+
 def test_load_nonexistent(predictor):
     """存在しないファイルの読込はFalseを返す."""
     assert predictor.load("/nonexistent/model.pkl") is False

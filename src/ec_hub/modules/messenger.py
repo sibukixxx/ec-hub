@@ -178,6 +178,7 @@ class Messenger:
         ebay_message_id: str | None = None,
         order_id: int | None = None,
         listing_id: int | None = None,
+        candidate_id: int | None = None,
     ) -> bool:
         """メッセージを処理する.
 
@@ -198,6 +199,7 @@ class Messenger:
             ebay_message_id=ebay_message_id,
             order_id=order_id,
             listing_id=listing_id,
+            candidate_id=candidate_id,
             category=category.value,
         )
 
@@ -215,6 +217,7 @@ class Messenger:
                 direction="outbound",
                 order_id=order_id,
                 listing_id=listing_id,
+                candidate_id=candidate_id,
                 category=category.value,
                 auto_replied=True,
             )

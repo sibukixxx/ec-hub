@@ -36,3 +36,7 @@ CSS セレクタに依存した HTML パースのため、eBay の DOM 変更で
 - `config/selectors.yaml` (新規)
 - `tests/test_circuit_breaker.py` (新規)
 - `tests/test_scraper_resilience.py` (新規)
+
+## 残課題
+- 公式 API へ寄せる移行方針は未確定で、Browse API などへ置き換える段階設計と切替条件の整理が必要
+- 検索系の呼び出し側がスクレイパー実装と API 実装を差し替えられるよう、共通インターフェースの整理が残っている

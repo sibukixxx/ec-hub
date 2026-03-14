@@ -1,5 +1,7 @@
 """AppContext のテスト."""
 
+from pathlib import Path
+
 import pytest
 
 from ec_hub.context import AppContext
@@ -52,3 +54,11 @@ async def test_app_context_as_context_manager():
 async def test_app_context_settings_and_fee_rules(ctx):
     assert ctx.settings is not None
     assert ctx.fee_rules is not None
+
+
+def test_app_context_validate_services_fails_fast(tmp_path: Path):
+    settings_path = tmp_path / "settings.yaml"
+    settings_path.write_text("database:\n  path: ':memory:'\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="Required service"):
+        AppContext.create(settings_path=settings_path, db_path=":memory:", validate_services=True)

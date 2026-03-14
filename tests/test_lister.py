@@ -166,3 +166,28 @@ async def test_list_candidate_creates_listing_record(lister, db):
     assert listing["title_en"] is not None
     assert listing["description_html"] is not None
     assert listing["status"] == "active"
+
+
+async def test_check_selling_limit_counts_active_listings(lister, db):
+    cid = await db.add_candidate(
+        item_code="B09ACTIVE",
+        source_site="amazon",
+        title_jp="稼働中出品",
+        title_en="Active Listing",
+        cost_jpy=3000,
+        ebay_price_usd=80.0,
+        net_profit_jpy=5000,
+        margin_rate=1.67,
+    )
+    await db.add_listing(
+        candidate_id=cid,
+        sku=f"ECHUB-{cid}",
+        title_en="Active Listing",
+        listed_price_usd=80.0,
+        listed_fx_rate=150.0,
+        status="active",
+    )
+
+    limit = await lister.check_selling_limit()
+    assert limit["current"] == 1
+    assert limit["remaining"] == 99

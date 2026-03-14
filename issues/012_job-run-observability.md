@@ -26,3 +26,9 @@
 - `src/ec_hub/modules/*.py`
 - `src/ec_hub/db/database.py`
 - `frontend/src/pages/Dashboard.jsx`
+
+## 残課題
+- `job_runs` / `integration_status` テーブルと API は追加されたが、`JobRunner` を通しているのは `ResearchUseCase` / `ListingUseCase` / `OrderUseCase.check_new_orders` までで、Scheduler 経由の `Messenger` / `ProfitTracker` 実行履歴は自動記録されない
+- `integration_status` を実運用で更新する書き込み経路がまだなく、`/api/system/health` と Dashboard の health 情報は DB に手動投入しない限り埋まらない
+- Dashboard の API レスポンスには `recent_jobs` と `health` が含まれるが、`frontend/src/pages/Dashboard.jsx` ではまだ表示していない
+- LINE 通知の severity 分離と重複抑止 (dedupe) は未実装
