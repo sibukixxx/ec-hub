@@ -1,59 +1,58 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { RoutableProps } from 'preact-router';
-import { useEffect, useState } from 'preact/hooks';
+import { useState } from 'preact/hooks';
 import { api } from '../api';
 import { Alerts } from '../components/Alerts';
 import { Badge } from '../components/Badge';
 import { EmptyRow } from '../components/EmptyRow';
 import { inputValue } from '../lib/format';
+import { queryKeys } from '../lib/query-keys';
 import type { Message } from '../types';
 
 export function Messages(_props: RoutableProps) {
   const [buyer, setBuyer] = useState('');
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [appliedBuyer, setAppliedBuyer] = useState<string | undefined>(
+    undefined
+  );
   const [drafts, setDrafts] = useState<Record<number, string>>({});
-  const [loading, setLoading] = useState(true);
   const [sendingId, setSendingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const load = async (buyerFilter = buyer) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await api.getMessages(
-        buyerFilter.trim() || undefined,
-        100
-      );
-      setMessages(result);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const {
+    data: messages = [],
+    isLoading,
+    error: queryError,
+  } = useQuery<Message[], Error>({
+    queryKey: queryKeys.messages(appliedBuyer),
+    queryFn: () => api.getMessages(appliedBuyer, 100),
+  });
 
-  useEffect(() => {
-    void load('');
-  }, []);
-
-  const reply = async (messageId: number) => {
-    const body = (drafts[messageId] || '').trim();
-    if (!body) return;
-
-    setSendingId(messageId);
-    setError(null);
-    setNotice(null);
-    try {
-      await api.replyMessage(messageId, body);
+  const replyMutation = useMutation({
+    mutationFn: ({ messageId, body }: { messageId: number; body: string }) =>
+      api.replyMessage(messageId, body),
+    onMutate: ({ messageId }) => {
+      setSendingId(messageId);
+      setError(null);
+      setNotice(null);
+    },
+    onSuccess: (_data, { messageId }) => {
       setDrafts((current) => ({ ...current, [messageId]: '' }));
       setNotice(`Reply sent for message #${messageId}.`);
-      await load();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setSendingId(null);
-    }
+      void queryClient.invalidateQueries({ queryKey: ['messages'] });
+    },
+    onError: (e: Error) => setError(e.message),
+    onSettled: () => setSendingId(null),
+  });
+
+  const handleReply = (messageId: number) => {
+    const body = (drafts[messageId] || '').trim();
+    if (!body) return;
+    replyMutation.mutate({ messageId, body });
   };
+
+  const displayError = error || queryError?.message || null;
 
   return (
     <div>
@@ -70,15 +69,20 @@ export function Messages(_props: RoutableProps) {
               placeholder="buyer username"
             />
           </div>
-          <button class="btn btn-primary" onClick={() => load()}>
+          <button
+            class="btn btn-primary"
+            onClick={() =>
+              setAppliedBuyer(buyer.trim() || undefined)
+            }
+          >
             Refresh
           </button>
         </div>
       </div>
 
-      <Alerts notice={notice} error={error} />
+      <Alerts notice={notice} error={displayError} />
 
-      {loading ? (
+      {isLoading ? (
         <div class="loading">Loading...</div>
       ) : (
         <div class="table-wrap">
@@ -134,7 +138,7 @@ export function Messages(_props: RoutableProps) {
                         />
                         <button
                           class="btn btn-primary btn-sm"
-                          onClick={() => reply(msg.id)}
+                          onClick={() => handleReply(msg.id)}
                           disabled={
                             sendingId === msg.id ||
                             !(drafts[msg.id] || '').trim()

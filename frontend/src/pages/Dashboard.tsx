@@ -1,22 +1,18 @@
+import { useQuery } from '@tanstack/react-query';
 import type { RoutableProps } from 'preact-router';
-import { useState, useEffect } from 'preact/hooks';
 import { api } from '../api';
 import { formatJpy } from '../lib/format';
+import { queryKeys } from '../lib/query-keys';
 import type { DashboardData, ServiceHealth } from '../types';
 
 export function Dashboard(_props: RoutableProps) {
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data, error, isLoading } = useQuery<DashboardData, Error>({
+    queryKey: queryKeys.dashboard,
+    queryFn: () => api.getDashboard(),
+  });
 
-  useEffect(() => {
-    api
-      .getDashboard()
-      .then(setData)
-      .catch((e: Error) => setError(e.message));
-  }, []);
-
-  if (error) return <div class="loading">Error: {error}</div>;
-  if (!data) return <div class="loading">Loading...</div>;
+  if (error) return <div class="loading">Error: {error.message}</div>;
+  if (isLoading || !data) return <div class="loading">Loading...</div>;
 
   const { candidates, orders, recent_profit, fx_rate, health = [] } = data;
   const exchangeRateHealth = health.find(

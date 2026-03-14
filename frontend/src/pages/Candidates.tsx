@@ -1,11 +1,13 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { RoutableProps } from 'preact-router';
-import { useState, useEffect } from 'preact/hooks';
+import { useState } from 'preact/hooks';
 import { api } from '../api';
 import { Badge } from '../components/Badge';
 import { EmptyRow } from '../components/EmptyRow';
 import { StatusTabs } from '../components/StatusTabs';
 import { matchScoreColor } from '../lib/color';
 import { formatJpy, formatUsd, truncate } from '../lib/format';
+import { queryKeys } from '../lib/query-keys';
 import type { Candidate } from '../types';
 
 const STATUSES: Array<string | null> = [
@@ -17,25 +19,21 @@ const STATUSES: Array<string | null> = [
 ];
 
 export function Candidates(_props: RoutableProps) {
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [filter, setFilter] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
 
-  const load = () => {
-    setLoading(true);
-    void api
-      .getCandidates(filter, 100)
-      .then(setCandidates)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  };
+  const { data: candidates = [], isLoading, error } = useQuery<Candidate[], Error>({
+    queryKey: queryKeys.candidates(filter),
+    queryFn: () => api.getCandidates(filter, 100),
+  });
 
-  useEffect(load, [filter]);
-
-  const updateStatus = async (id: number, status: string) => {
-    await api.updateCandidateStatus(id, status);
-    load();
-  };
+  const updateStatusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      api.updateCandidateStatus(id, status),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['candidates'] });
+    },
+  });
 
   return (
     <div>
@@ -43,7 +41,9 @@ export function Candidates(_props: RoutableProps) {
 
       <StatusTabs statuses={STATUSES} current={filter} onChange={setFilter} />
 
-      {loading ? (
+      {error && <div class="loading">Error: {error.message}</div>}
+
+      {isLoading ? (
         <div class="loading">Loading...</div>
       ) : (
         <div class="table-wrap">
@@ -100,13 +100,23 @@ export function Candidates(_props: RoutableProps) {
                       <>
                         <button
                           class="btn btn-success btn-sm"
-                          onClick={() => updateStatus(c.id, 'approved')}
+                          onClick={() =>
+                            updateStatusMutation.mutate({
+                              id: c.id,
+                              status: 'approved',
+                            })
+                          }
                         >
                           Approve
                         </button>{' '}
                         <button
                           class="btn btn-danger btn-sm"
-                          onClick={() => updateStatus(c.id, 'rejected')}
+                          onClick={() =>
+                            updateStatusMutation.mutate({
+                              id: c.id,
+                              status: 'rejected',
+                            })
+                          }
                         >
                           Reject
                         </button>

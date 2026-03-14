@@ -1,3 +1,4 @@
+import { useMutation } from '@tanstack/react-query';
 import type { RoutableProps } from 'preact-router';
 import { useState } from 'preact/hooks';
 import { api } from '../api';
@@ -12,7 +13,10 @@ export function ProfitCalc(_props: RoutableProps) {
     weight_g: 500,
     destination: 'US',
   });
-  const [result, setResult] = useState<ProfitResult | null>(null);
+
+  const calcMutation = useMutation({
+    mutationFn: (data: ProfitForm) => api.calcProfit(data),
+  });
 
   const handleChange = (e: Event) => {
     const target = e.target as HTMLInputElement;
@@ -21,11 +25,6 @@ export function ProfitCalc(_props: RoutableProps) {
       ...f,
       [name]: name === 'destination' ? value : Number(value),
     }));
-  };
-
-  const calculate = async () => {
-    const data = await api.calcProfit(form);
-    setResult(data);
   };
 
   return (
@@ -63,12 +62,16 @@ export function ProfitCalc(_props: RoutableProps) {
             onChange={handleChange}
           />
         </div>
-        <button class="btn btn-primary" onClick={calculate}>
-          Calculate
+        <button
+          class="btn btn-primary"
+          onClick={() => calcMutation.mutate(form)}
+          disabled={calcMutation.isPending}
+        >
+          {calcMutation.isPending ? 'Calculating...' : 'Calculate'}
         </button>
       </div>
 
-      {result && <ProfitBreakdown result={result} />}
+      {calcMutation.data && <ProfitBreakdown result={calcMutation.data} />}
     </div>
   );
 }

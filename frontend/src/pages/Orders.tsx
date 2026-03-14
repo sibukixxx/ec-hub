@@ -1,11 +1,13 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { RoutableProps } from 'preact-router';
-import { useState, useEffect } from 'preact/hooks';
+import { useState } from 'preact/hooks';
 import { api } from '../api';
 import { Alerts } from '../components/Alerts';
 import { Badge } from '../components/Badge';
 import { EmptyRow } from '../components/EmptyRow';
 import { StatusTabs } from '../components/StatusTabs';
 import { formatDate, formatJpy, formatUsd, inputValue } from '../lib/format';
+import { queryKeys } from '../lib/query-keys';
 import type { Order } from '../types';
 
 const STATUSES: Array<string | null> = [
@@ -26,31 +28,77 @@ interface OrderDrafts {
 }
 
 export function Orders(_props: RoutableProps) {
-  const [orders, setOrders] = useState<Order[]>([]);
   const [filter, setFilter] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [drafts, setDrafts] = useState<OrderDrafts>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const load = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await api.getOrders(filter, 100);
-      setOrders(result);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const {
+    data: orders = [],
+    isLoading,
+    error: queryError,
+  } = useQuery<Order[], Error>({
+    queryKey: queryKeys.orders(filter),
+    queryFn: () => api.getOrders(filter, 100),
+  });
 
-  useEffect(() => {
-    void load();
-  }, [filter]);
+  const checkOrdersMutation = useMutation({
+    mutationFn: () => api.checkOrders(),
+    onSuccess: (result) => {
+      setNotice(
+        `Order sync completed: ${result.new_orders} new orders registered.`
+      );
+      void queryClient.invalidateQueries({ queryKey: ['orders'] });
+    },
+    onError: (e: Error) => setError(e.message),
+    onMutate: () => {
+      setError(null);
+      setNotice(null);
+    },
+  });
+
+  const updateStatusMutation = useMutation({
+    mutationFn: ({
+      order,
+      status,
+    }: {
+      order: Order;
+      status: string;
+    }) => {
+      const draft = drafts[order.id] || {};
+      const payload: Record<string, unknown> = { status };
+
+      if (status === 'purchased') {
+        payload.actual_cost_jpy = Number(draft.actual_cost_jpy || 0);
+      }
+      if (status === 'shipped') {
+        payload.tracking_number = (draft.tracking_number || '').trim();
+        payload.shipping_cost_jpy = Number(draft.shipping_cost_jpy || 0);
+        if (!payload.tracking_number) {
+          return Promise.reject(
+            new Error(
+              'Tracking number is required before marking an order as shipped.'
+            )
+          );
+        }
+      }
+
+      return api.updateOrderStatus(order.id, payload);
+    },
+    onMutate: ({ order }) => {
+      setUpdatingId(order.id);
+      setError(null);
+      setNotice(null);
+    },
+    onSuccess: (_data, { order, status }) => {
+      setNotice(`Order #${order.id} updated to ${status}.`);
+      void queryClient.invalidateQueries({ queryKey: ['orders'] });
+    },
+    onError: (e: Error) => setError(e.message),
+    onSettled: () => setUpdatingId(null),
+  });
 
   const updateDraft = (orderId: number, key: string, value: string) => {
     setDrafts((current) => ({
@@ -59,54 +107,7 @@ export function Orders(_props: RoutableProps) {
     }));
   };
 
-  const checkOrders = async () => {
-    setSyncing(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await api.checkOrders();
-      setNotice(
-        `Order sync completed: ${result.new_orders} new orders registered.`
-      );
-      await load();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const updateStatus = async (order: Order, status: string) => {
-    const draft = drafts[order.id] || {};
-    const payload: Record<string, unknown> = { status };
-
-    if (status === 'purchased') {
-      payload.actual_cost_jpy = Number(draft.actual_cost_jpy || 0);
-    }
-    if (status === 'shipped') {
-      payload.tracking_number = (draft.tracking_number || '').trim();
-      payload.shipping_cost_jpy = Number(draft.shipping_cost_jpy || 0);
-      if (!payload.tracking_number) {
-        setError(
-          'Tracking number is required before marking an order as shipped.'
-        );
-        return;
-      }
-    }
-
-    setUpdatingId(order.id);
-    setError(null);
-    setNotice(null);
-    try {
-      await api.updateOrderStatus(order.id, payload);
-      setNotice(`Order #${order.id} updated to ${status}.`);
-      await load();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setUpdatingId(null);
-    }
-  };
+  const displayError = error || queryError?.message || null;
 
   return (
     <div>
@@ -115,10 +116,10 @@ export function Orders(_props: RoutableProps) {
       <div class="toolbar" style="margin-bottom:1rem">
         <button
           class="btn btn-primary"
-          onClick={checkOrders}
-          disabled={syncing}
+          onClick={() => checkOrdersMutation.mutate()}
+          disabled={checkOrdersMutation.isPending}
         >
-          {syncing ? 'Syncing...' : 'Check New Orders'}
+          {checkOrdersMutation.isPending ? 'Syncing...' : 'Check New Orders'}
         </button>
         <a class="btn btn-secondary" href={api.exportUrl('orders', 'csv')}>
           Export CSV
@@ -128,11 +129,11 @@ export function Orders(_props: RoutableProps) {
         </a>
       </div>
 
-      <Alerts notice={notice} error={error} />
+      <Alerts notice={notice} error={displayError} />
 
       <StatusTabs statuses={STATUSES} current={filter} onChange={setFilter} />
 
-      {loading ? (
+      {isLoading ? (
         <div class="loading">Loading...</div>
       ) : (
         <div class="table-wrap">
@@ -173,7 +174,9 @@ export function Orders(_props: RoutableProps) {
                       drafts={drafts}
                       updatingId={updatingId}
                       onDraftChange={updateDraft}
-                      onStatusChange={updateStatus}
+                      onStatusChange={(order, status) =>
+                        updateStatusMutation.mutate({ order, status })
+                      }
                     />
                   </td>
                 </tr>

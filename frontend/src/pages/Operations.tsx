@@ -1,3 +1,4 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { RoutableProps } from 'preact-router';
 import { useEffect, useState } from 'preact/hooks';
 import { api } from '../api';
@@ -5,6 +6,7 @@ import { Alerts } from '../components/Alerts';
 import { Badge } from '../components/Badge';
 import { healthBadge, runStatusBadge } from '../lib/color';
 import { formatTimestamp, inputValue } from '../lib/format';
+import { queryKeys } from '../lib/query-keys';
 import type {
   JobRun,
   ListingLimits,
@@ -31,156 +33,161 @@ function mergeRun(runs: ResearchRun[], nextRun: ResearchRun): ResearchRun[] {
 export function Operations(_props: RoutableProps) {
   const [keywords, setKeywords] = useState('');
   const [pages, setPages] = useState(1);
-  const [runs, setRuns] = useState<ResearchRun[]>([]);
   const [activeRunId, setActiveRunId] = useState<number | null>(null);
-  const [listingLimits, setListingLimits] = useState<ListingLimits | null>(
-    null
-  );
-  const [jobRuns, setJobRuns] = useState<JobRun[]>([]);
-  const [health, setHealth] = useState<ServiceHealth[]>([]);
-  const [scheduler, setScheduler] = useState<SchedulerStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [researchBusy, setResearchBusy] = useState(false);
-  const [listingBusy, setListingBusy] = useState(false);
-  const [ordersBusy, setOrdersBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const loadOverview = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [nextRuns, nextLimits, nextJobs, nextHealth, nextScheduler] =
-        await Promise.all([
-          api.getResearchRuns(10),
-          api.getListingLimits(),
-          api.getJobRuns(null, 5),
-          api.getSystemHealth(),
-          api.getSchedulerStatus(),
-        ]);
-      setRuns(nextRuns);
-      setListingLimits(nextLimits);
-      setJobRuns(nextJobs);
-      setHealth(nextHealth);
-      setScheduler(nextScheduler);
-      const running = nextRuns.find((run) => !run.completed_at);
-      setActiveRunId(running ? running.id : null);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
+  const runsQuery = useQuery<ResearchRun[]>({
+    queryKey: queryKeys.researchRuns,
+    queryFn: () => api.getResearchRuns(10),
+  });
+
+  const limitsQuery = useQuery<ListingLimits>({
+    queryKey: queryKeys.listingLimits,
+    queryFn: () => api.getListingLimits(),
+  });
+
+  const jobRunsQuery = useQuery<JobRun[]>({
+    queryKey: queryKeys.jobRuns,
+    queryFn: () => api.getJobRuns(null, 5),
+  });
+
+  const healthQuery = useQuery<ServiceHealth[]>({
+    queryKey: queryKeys.systemHealth,
+    queryFn: () => api.getSystemHealth(),
+  });
+
+  const schedulerQuery = useQuery<SchedulerStatus>({
+    queryKey: queryKeys.schedulerStatus,
+    queryFn: () => api.getSchedulerStatus(),
+  });
+
+  const activeRunQuery = useQuery<ResearchRun>({
+    queryKey: queryKeys.researchRun(activeRunId!),
+    queryFn: () => api.getResearchRun(activeRunId!),
+    enabled: activeRunId !== null,
+    refetchInterval: 2500,
+  });
+
+  // Detect initial active run from loaded runs
+  useEffect(() => {
+    if (runsQuery.data && activeRunId === null) {
+      const running = runsQuery.data.find((run) => !run.completed_at);
+      if (running) setActiveRunId(running.id);
     }
-  };
+  }, [runsQuery.data, activeRunId]);
 
+  // Merge polled active run into runs list & detect completion
   useEffect(() => {
-    void loadOverview();
-  }, []);
+    if (!activeRunQuery.data) return;
+    const run = activeRunQuery.data;
 
-  useEffect(() => {
-    if (!activeRunId) return undefined;
+    queryClient.setQueryData<ResearchRun[]>(queryKeys.researchRuns, (old) =>
+      old ? mergeRun(old, run) : [run]
+    );
 
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const run = await api.getResearchRun(activeRunId);
-        if (cancelled) return;
-        setRuns((current) => mergeRun(current, run));
-        if (run.completed_at) {
-          setActiveRunId(null);
-          setNotice(
-            `Research run #${run.id} completed with ${run.candidates_found || 0} candidates.`
-          );
-          const [nextJobs, nextHealth] = await Promise.all([
-            api.getJobRuns(null, 5),
-            api.getSystemHealth(),
-          ]);
-          if (!cancelled) {
-            setJobRuns(nextJobs);
-            setHealth(nextHealth);
-          }
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError((e as Error).message);
-        }
-      }
-    };
+    if (run.completed_at) {
+      setActiveRunId(null);
+      setNotice(
+        `Research run #${run.id} completed with ${run.candidates_found || 0} candidates.`
+      );
+      void queryClient.invalidateQueries({ queryKey: queryKeys.jobRuns });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.systemHealth });
+    }
+  }, [activeRunQuery.data, queryClient]);
 
-    void poll();
-    const intervalId = setInterval(() => void poll(), 2500);
-    return () => {
-      cancelled = true;
-      clearInterval(intervalId);
-    };
-  }, [activeRunId]);
-
-  const startResearch = async () => {
-    setResearchBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const payload: { pages: number; keywords?: string[] } = { pages };
-      const parsedKeywords = parseKeywords(keywords);
-      if (parsedKeywords.length > 0) {
-        payload.keywords = parsedKeywords;
-      }
-      const result = await api.runResearch(payload);
+  const researchMutation = useMutation({
+    mutationFn: (payload: { pages: number; keywords?: string[] }) =>
+      api.runResearch(payload),
+    onMutate: () => {
+      setError(null);
+      setNotice(null);
+    },
+    onSuccess: async (result) => {
       setNotice(`Research run #${result.run_id} started.`);
       setActiveRunId(result.run_id);
-      const nextRuns = await api.getResearchRuns(10);
-      setRuns(nextRuns);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setResearchBusy(false);
-    }
-  };
+      void queryClient.invalidateQueries({ queryKey: queryKeys.researchRuns });
+    },
+    onError: (e: Error) => setError(e.message),
+  });
 
-  const runListing = async () => {
-    setListingBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await api.runListing();
+  const listingMutation = useMutation({
+    mutationFn: () => api.runListing(),
+    onMutate: () => {
+      setError(null);
+      setNotice(null);
+    },
+    onSuccess: (result) => {
       setNotice(
         `Listing run completed: ${result.listed_count} listings published.`
       );
-      const [nextLimits, nextJobs] = await Promise.all([
-        api.getListingLimits(),
-        api.getJobRuns(null, 5),
-      ]);
-      setListingLimits(nextLimits);
-      setJobRuns(nextJobs);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setListingBusy(false);
-    }
-  };
+      void queryClient.invalidateQueries({ queryKey: queryKeys.listingLimits });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.jobRuns });
+    },
+    onError: (e: Error) => setError(e.message),
+  });
 
-  const checkOrders = async () => {
-    setOrdersBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await api.checkOrders();
+  const ordersMutation = useMutation({
+    mutationFn: () => api.checkOrders(),
+    onMutate: () => {
+      setError(null);
+      setNotice(null);
+    },
+    onSuccess: (result) => {
       setNotice(
         `Order sync completed: ${result.new_orders} new orders registered.`
       );
-      const nextJobs = await api.getJobRuns(null, 5);
-      setJobRuns(nextJobs);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setOrdersBusy(false);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.jobRuns });
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  const startResearch = () => {
+    const payload: { pages: number; keywords?: string[] } = { pages };
+    const parsedKeywords = parseKeywords(keywords);
+    if (parsedKeywords.length > 0) {
+      payload.keywords = parsedKeywords;
     }
+    researchMutation.mutate(payload);
+  };
+
+  const loading =
+    runsQuery.isLoading ||
+    limitsQuery.isLoading ||
+    jobRunsQuery.isLoading ||
+    healthQuery.isLoading ||
+    schedulerQuery.isLoading;
+
+  const runs = runsQuery.data ?? [];
+  const listingLimits = limitsQuery.data ?? null;
+  const jobRuns = jobRunsQuery.data ?? [];
+  const health = healthQuery.data ?? [];
+  const scheduler = schedulerQuery.data ?? null;
+
+  const queryError =
+    runsQuery.error ||
+    limitsQuery.error ||
+    jobRunsQuery.error ||
+    healthQuery.error ||
+    schedulerQuery.error;
+  const displayError = error || (queryError as Error | null)?.message || null;
+
+  const refreshAll = () => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.researchRuns });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.listingLimits });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.jobRuns });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.systemHealth });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.schedulerStatus,
+    });
   };
 
   return (
     <div>
       <h2 class="page-title">Operations</h2>
 
-      <Alerts notice={notice} error={error} />
+      <Alerts notice={notice} error={displayError} />
 
       <div class="panel-grid" style="margin-bottom:1.5rem">
         <section class="card">
@@ -189,9 +196,9 @@ export function Operations(_props: RoutableProps) {
             <button
               class="btn btn-primary"
               onClick={startResearch}
-              disabled={researchBusy}
+              disabled={researchMutation.isPending}
             >
-              {researchBusy ? 'Starting...' : 'Run Research'}
+              {researchMutation.isPending ? 'Starting...' : 'Run Research'}
             </button>
           </div>
           <div class="field">
@@ -223,10 +230,10 @@ export function Operations(_props: RoutableProps) {
             <h3>Listing</h3>
             <button
               class="btn btn-primary"
-              onClick={runListing}
-              disabled={listingBusy}
+              onClick={() => listingMutation.mutate()}
+              disabled={listingMutation.isPending}
             >
-              {listingBusy ? 'Listing...' : 'Run Listing'}
+              {listingMutation.isPending ? 'Listing...' : 'Run Listing'}
             </button>
           </div>
           {listingLimits ? (
@@ -260,10 +267,10 @@ export function Operations(_props: RoutableProps) {
             <h3>Orders</h3>
             <button
               class="btn btn-primary"
-              onClick={checkOrders}
-              disabled={ordersBusy}
+              onClick={() => ordersMutation.mutate()}
+              disabled={ordersMutation.isPending}
             >
-              {ordersBusy ? 'Syncing...' : 'Check New Orders'}
+              {ordersMutation.isPending ? 'Syncing...' : 'Check New Orders'}
             </button>
           </div>
           <div class="muted">
@@ -303,7 +310,7 @@ export function Operations(_props: RoutableProps) {
         <ResearchRunsTable
           runs={runs}
           loading={loading}
-          onRefresh={loadOverview}
+          onRefresh={refreshAll}
         />
 
         <SystemStatePanel

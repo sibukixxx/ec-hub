@@ -1,34 +1,29 @@
+import { useMutation } from '@tanstack/react-query';
 import type { RoutableProps } from 'preact-router';
 import { useState } from 'preact/hooks';
 import { api } from '../api';
 import { Badge } from '../components/Badge';
 import { marginColor, matchScoreColor } from '../lib/color';
 import { formatJpy, formatUsd, inputValue, truncate } from '../lib/format';
-import type { CompareResult, EbayItem, SourceCandidate } from '../types';
+import type { EbayItem, SourceCandidate } from '../types';
 
 export function Compare(_props: RoutableProps) {
   const [keyword, setKeyword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<CompareResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  const search = async () => {
+  const searchMutation = useMutation({
+    mutationFn: (kw: string) => api.comparePrice(kw),
+  });
+
+  const search = () => {
     if (!keyword.trim()) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await api.comparePrice(keyword.trim());
-      setResult(data);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
+    searchMutation.mutate(keyword.trim());
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter') void search();
+    if (e.key === 'Enter') search();
   };
+
+  const result = searchMutation.data ?? null;
 
   return (
     <div>
@@ -46,15 +41,19 @@ export function Compare(_props: RoutableProps) {
               placeholder="e.g. Nintendo Switch, MUJI aroma"
             />
           </div>
-          <button class="btn btn-primary" onClick={search} disabled={loading}>
-            {loading ? 'Searching...' : 'Compare'}
+          <button
+            class="btn btn-primary"
+            onClick={search}
+            disabled={searchMutation.isPending}
+          >
+            {searchMutation.isPending ? 'Searching...' : 'Compare'}
           </button>
         </div>
       </div>
 
-      {error && (
+      {searchMutation.error && (
         <div class="card" style="color:var(--red)">
-          {error}
+          {(searchMutation.error as Error).message}
         </div>
       )}
 
