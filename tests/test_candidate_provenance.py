@@ -20,8 +20,7 @@ async def test_create_research_run(db):
     """research_runs テーブルに実行記録を保存できる."""
     run_id = await db.create_research_run(
         query="japanese vintage",
-        ebay_hits=25,
-        candidates_found=3,
+        ebay_results_count=25,
     )
     assert run_id is not None
     assert run_id > 0
@@ -29,8 +28,8 @@ async def test_create_research_run(db):
 
 async def test_get_research_runs(db):
     """research_runs の一覧を取得できる."""
-    await db.create_research_run(query="anime figure", ebay_hits=10, candidates_found=2)
-    await db.create_research_run(query="japan exclusive", ebay_hits=15, candidates_found=1)
+    await db.create_research_run(query="anime figure", ebay_results_count=10)
+    await db.create_research_run(query="japan exclusive", ebay_results_count=15)
 
     runs = await db.get_research_runs(limit=10)
     assert len(runs) == 2
@@ -43,7 +42,7 @@ async def test_get_research_runs(db):
 
 async def test_add_candidate_with_ebay_provenance(db):
     """候補登録時に eBay 出所情報を保存できる."""
-    run_id = await db.create_research_run(query="test", ebay_hits=5, candidates_found=1)
+    run_id = await db.create_research_run(query="test", ebay_results_count=5)
     cid = await db.add_candidate(
         item_code="B09TEST",
         source_site="amazon",
@@ -73,7 +72,7 @@ async def test_add_candidate_with_ebay_provenance(db):
 
 async def test_upsert_candidate_deduplicates(db):
     """同一 source_site + item_code + ebay_item_id は重複登録されない."""
-    run_id = await db.create_research_run(query="test", ebay_hits=5, candidates_found=1)
+    run_id = await db.create_research_run(query="test", ebay_results_count=5)
 
     # 1回目: 新規登録
     cid1 = await db.add_candidate(
@@ -92,7 +91,7 @@ async def test_upsert_candidate_deduplicates(db):
     )
 
     # 2回目: 同一キーで価格が変わった
-    run_id2 = await db.create_research_run(query="test2", ebay_hits=3, candidates_found=1)
+    run_id2 = await db.create_research_run(query="test2", ebay_results_count=3)
     cid2 = await db.add_candidate(
         item_code="B09TEST",
         source_site="amazon",
@@ -126,7 +125,7 @@ async def test_upsert_candidate_deduplicates(db):
 
 async def test_upsert_different_ebay_item_creates_new(db):
     """同じ仕入れ商品でも異なる eBay 商品なら別候補として登録."""
-    run_id = await db.create_research_run(query="test", ebay_hits=5, candidates_found=2)
+    run_id = await db.create_research_run(query="test", ebay_results_count=5)
 
     await db.add_candidate(
         item_code="B09TEST",
@@ -163,7 +162,7 @@ async def test_upsert_different_ebay_item_creates_new(db):
 
 async def test_upsert_preserves_status(db):
     """upsert 時に approved 等のステータスは上書きしない."""
-    run_id = await db.create_research_run(query="test", ebay_hits=5, candidates_found=1)
+    run_id = await db.create_research_run(query="test", ebay_results_count=5)
 
     cid = await db.add_candidate(
         item_code="B09TEST",
@@ -182,7 +181,7 @@ async def test_upsert_preserves_status(db):
     await db.update_candidate_status(cid, "approved")
 
     # Re-observe with different price
-    run_id2 = await db.create_research_run(query="test2", ebay_hits=3, candidates_found=1)
+    run_id2 = await db.create_research_run(query="test2", ebay_results_count=3)
     await db.add_candidate(
         item_code="B09TEST",
         source_site="amazon",

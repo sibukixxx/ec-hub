@@ -104,3 +104,35 @@ async def test_update_candidate_status(ctx):
     await svc.update_candidate_status(cid, "approved")
     result = await svc.get_candidate(cid)
     assert result["status"] == "approved"
+
+
+
+# --- research_runs ---
+
+
+async def test_get_research_runs_empty(ctx):
+    svc = ResearchService(ctx)
+    result = await svc.get_research_runs()
+    assert result == []
+
+
+async def test_get_research_runs_with_data(ctx):
+    await ctx.db.create_research_run(query="test", ebay_results_count=10)
+    svc = ResearchService(ctx)
+    result = await svc.get_research_runs()
+    assert len(result) == 1
+    assert result[0]["query"] == "test"
+
+
+async def test_get_research_run_by_id(ctx):
+    run_id = await ctx.db.create_research_run(query="q1", ebay_results_count=5)
+    svc = ResearchService(ctx)
+    result = await svc.get_research_run(run_id)
+    assert result is not None
+    assert result["query"] == "q1"
+
+
+async def test_get_research_run_not_found(ctx):
+    svc = ResearchService(ctx)
+    result = await svc.get_research_run(99999)
+    assert result is None
