@@ -4,8 +4,7 @@ import pytest
 
 from ec_hub.db import Database
 from ec_hub.modules.researcher import Researcher, simplify_search_query
-from ec_hub.scrapers.base import SourceProduct, SourceSearchResult, SourceSearcher
-
+from ec_hub.scrapers.base import SourceProduct, SourceSearcher, SourceSearchResult
 
 # --- テスト用モックSearcher ---
 
