@@ -1,9 +1,10 @@
 """スクレイパー・APIクライアント群."""
 
 from ec_hub.scrapers.amazon import AmazonClient
-from ec_hub.scrapers.base import SourceProduct, SourceSearchResult, SourceSearcher
+from ec_hub.scrapers.base import SourceProduct, SourceSearcher, SourceSearchResult
 from ec_hub.scrapers.ebay import EbayScraper
 from ec_hub.scrapers.rakuten import RakutenClient
+from ec_hub.scrapers.yahoo_shopping import YahooShoppingClient
 
 __all__ = [
     "AmazonClient",
@@ -12,4 +13,5 @@ __all__ = [
     "SourceProduct",
     "SourceSearchResult",
     "SourceSearcher",
+    "YahooShoppingClient",
 ]
