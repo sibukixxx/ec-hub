@@ -108,6 +108,36 @@ class TestMessageUseCase:
         assert result["body"] == "Answer!"
         assert result["buyer_username"] == "buyer1"
 
+    async def test_reply_preserves_traceability_links(self, ctx):
+        cid = await ctx.candidates.add(
+            item_code="MSG-UC-01", source_site="amazon", title_jp="msg", title_en="msg",
+            cost_jpy=1000, ebay_price_usd=30.0, net_profit_jpy=1000, margin_rate=1.0,
+        )
+        lid = await ctx.db.add_listing(
+            candidate_id=cid,
+            sku=f"ECHUB-{cid}",
+            title_en="msg",
+            listed_price_usd=30.0,
+            listed_fx_rate=150.0,
+        )
+        oid = await ctx.orders.add(
+            ebay_order_id="MSG-ORD-01",
+            listing_id=lid,
+            sale_price_usd=30.0,
+        )
+        mid = await ctx.messages.add(
+            buyer_username="buyer1",
+            body="Question?",
+            order_id=oid,
+        )
+
+        uc = MessageUseCase(ctx)
+        result = await uc.reply(mid, "Answer!")
+
+        assert result["order_id"] == oid
+        assert result["listing_id"] == lid
+        assert result["candidate_id"] == cid
+
     async def test_reply_raises_not_found(self, ctx):
         uc = MessageUseCase(ctx)
         with pytest.raises(NotFoundError):

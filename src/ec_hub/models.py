@@ -70,9 +70,12 @@ class CandidateStatus(str, Enum):
 
 
 class ListingStatus(str, Enum):
+    DRAFT = "draft"
+    PUBLISHING = "publishing"
     ACTIVE = "active"
     SOLD = "sold"
     ENDED = "ended"
+    FAILED = "failed"
 
 
 class Candidate(BaseModel):
@@ -136,6 +139,7 @@ class Order(BaseModel):
     id: int | None = None
     ebay_order_id: str
     candidate_id: int | None = None
+    listing_id: int | None = None
     buyer_username: str | None = None
     sale_price_usd: float
     actual_cost_jpy: int | None = None
@@ -167,6 +171,8 @@ class BuyerMessage(BaseModel):
     id: int | None = None
     ebay_message_id: str | None = None
     order_id: int | None = None
+    listing_id: int | None = None
+    candidate_id: int | None = None
     buyer_username: str
     direction: str = "inbound"
     category: MessageCategory | None = None

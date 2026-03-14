@@ -43,3 +43,9 @@
 - `frontend/src/pages/*.jsx`
 - `frontend/src/components/*.jsx`
 - `frontend/src/api.js`
+
+## 残課題
+- `frontend/src/pages/Operations.tsx` / `Orders.tsx` / `Messages.tsx` により、リサーチ実行と進捗確認、出品実行と制限表示、注文更新、メッセージ一覧 / 手動返信、エクスポート導線までは実装済み
+- 出品は Operations 画面からの一括実行のみで、承認済み候補ごとの出品プレビューや選択的 publish UI はまだない
+- Candidates 画面の一括承認 / 一括却下 / 一括出品などのバルク操作は未実装
+- メッセージ画面にはカテゴリ表示と手動返信がある一方、`other` 判定やエスカレーション案件を明示的に絞り込む UI はまだない

@@ -35,3 +35,8 @@
 - `src/ec_hub/models.py`
 - `frontend/src/pages/Compare.jsx`
 - `frontend/src/pages/Candidates.jsx`
+
+## 残課題
+- `match_score` / `match_reason` の保存、閾値の 0-100 正規化、Compare / Candidates での一致根拠表示までは入ったが、`extract_size_color()` で抽出しているサイズ・色を採点ロジックへまだ反映していない
+- レビュー件数、在庫状態、画像一致などの追加根拠は未導入で、スコアは依然としてタイトル / ブランド / 型番 / 数量 / 価格 / カテゴリ中心
+- `find_source_price()` は `ebay_title` が渡らない呼び出しでは後方互換のため最安採用へフォールバックするため、厳格に「スコア閾値を超えた候補のみ採用」に統一したい場合はこの分岐整理が残る

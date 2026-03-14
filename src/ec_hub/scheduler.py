@@ -1,0 +1,223 @@
+"""APScheduler の初期化・統合モジュール.
+
+settings.yaml のスケジュール設定を読み込み、
+Researcher / OrderManager / Messenger / ProfitTracker の定期実行を管理する。
+すべてのジョブ実行は JobRunner を通じて job_runs テーブルに記録される。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from typing import TYPE_CHECKING
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+
+from ec_hub.modules.job_runner import JobRunner
+
+if TYPE_CHECKING:
+    from ec_hub.context import AppContext
+
+logger = logging.getLogger(__name__)
+
+
+async def _run_researcher(ctx: AppContext) -> None:
+    """Researcher の定期実行ジョブ (JobRunner 経由で履歴記録)."""
+    from ec_hub.modules.researcher import Researcher
+
+    async def _execute() -> int:
+        researcher = Researcher(ctx.db, ctx.settings, ctx.fee_rules)
+        return await researcher.run()
+
+    runner = JobRunner(ctx.db)
+    count = await runner.run("researcher", _execute, params={"trigger": "scheduled"})
+    logger.info("Researcher 定期実行完了: %d 件登録", count)
+
+
+async def _run_order_manager(ctx: AppContext) -> None:
+    """OrderManager の定期実行ジョブ (JobRunner 経由で履歴記録)."""
+    from ec_hub.modules.order_manager import OrderManager
+
+    async def _execute() -> int:
+        manager = OrderManager(ctx.db, ctx.settings, ctx.fee_rules)
+        return await manager.run()
+
+    runner = JobRunner(ctx.db)
+    count = await runner.run("order_manager", _execute, params={"trigger": "scheduled"})
+    logger.info("OrderManager 定期実行完了: %d 件処理", count)
+
+
+async def _run_messenger(ctx: AppContext) -> None:
+    """Messenger の定期実行ジョブ (JobRunner 経由で履歴記録)."""
+    from ec_hub.modules.messenger import Messenger
+
+    async def _execute() -> int:
+        messenger = Messenger(ctx.db, ctx.settings)
+        return await messenger.run()
+
+    runner = JobRunner(ctx.db)
+    count = await runner.run("messenger", _execute, params={"trigger": "scheduled"})
+    logger.info("Messenger 定期実行完了: %d 件処理", count)
+
+
+async def _run_profit_tracker(ctx: AppContext) -> None:
+    """ProfitTracker の定期実行ジョブ (JobRunner 経由で履歴記録)."""
+    from ec_hub.modules.profit_tracker import ProfitTracker
+
+    async def _execute() -> dict:
+        tracker = ProfitTracker(ctx.db, ctx.settings, ctx.fee_rules)
+        return await tracker.generate_daily_report()
+
+    runner = JobRunner(ctx.db)
+    report = await runner.run("profit_tracker", _execute, params={"trigger": "scheduled"})
+    logger.info("ProfitTracker 日次レポート生成完了: %s", report.get("report_date"))
+
+
+async def _run_health_check(ctx: AppContext) -> None:
+    """外部サービスのヘルスチェックを実行."""
+    from ec_hub.modules.health_checker import check_all_services
+
+    results = await check_all_services(ctx.db, ctx.settings)
+    degraded = [r for r in results if r["status"] != "ok"]
+    if degraded:
+        logger.warning("ヘルスチェック: %d サービスが非正常状態", len(degraded))
+    else:
+        logger.info("ヘルスチェック: 全サービス正常")
+
+
+# ジョブ名と実行関数のマッピング
+_JOB_FUNCS = {
+    "researcher": _run_researcher,
+    "order_manager": _run_order_manager,
+    "messenger": _run_messenger,
+    "profit_tracker": _run_profit_tracker,
+}
+
+
+def _parse_cron(cron_expr: str) -> CronTrigger:
+    """cron 式を CronTrigger に変換する.
+
+    標準5フィールド形式: minute hour day month day_of_week
+    """
+    parts = cron_expr.strip().split()
+    if len(parts) != 5:
+        raise ValueError(f"Invalid cron expression: {cron_expr}")
+    minute, hour, day, month, day_of_week = parts
+    return CronTrigger(
+        minute=minute,
+        hour=hour,
+        day=day,
+        month=month,
+        day_of_week=day_of_week,
+    )
+
+
+class Scheduler:
+    """APScheduler ベースのジョブスケジューラ."""
+
+    def __init__(self, ctx: AppContext) -> None:
+        self._ctx = ctx
+        self._scheduler = AsyncIOScheduler()
+        self._job_configs: dict[str, dict] = {}
+        self._started = False
+        self._register_jobs()
+
+    def _register_jobs(self) -> None:
+        """settings のスケジュール設定からジョブを登録する."""
+        # ヘルスチェックジョブ (30分ごと)
+        self._scheduler.add_job(
+            _run_health_check,
+            trigger=IntervalTrigger(minutes=30),
+            id="health_check",
+            name="health_check",
+            args=[self._ctx],
+            replace_existing=True,
+        )
+        self._job_configs["health_check"] = {"trigger": "interval: 30min"}
+
+        scheduler_config = self._ctx.settings.get("scheduler", {})
+        if not scheduler_config:
+            return
+
+        for job_name, config in scheduler_config.items():
+            if job_name not in _JOB_FUNCS:
+                logger.warning("未知のジョブ名: %s", job_name)
+                continue
+
+            func = _JOB_FUNCS[job_name]
+            cron_expr = config.get("cron")
+            interval_minutes = config.get("interval_minutes")
+
+            if cron_expr:
+                trigger = _parse_cron(cron_expr)
+                trigger_desc = f"cron: {cron_expr}"
+            elif interval_minutes is not None:
+                trigger = IntervalTrigger(minutes=interval_minutes)
+                trigger_desc = f"interval: {interval_minutes}min"
+            else:
+                logger.warning("ジョブ %s にトリガー設定がありません", job_name)
+                continue
+
+            self._scheduler.add_job(
+                func,
+                trigger=trigger,
+                id=job_name,
+                name=job_name,
+                args=[self._ctx],
+                replace_existing=True,
+            )
+            self._job_configs[job_name] = {"trigger": trigger_desc}
+            logger.info("ジョブ登録: %s (%s)", job_name, trigger_desc)
+
+    @property
+    def is_running(self) -> bool:
+        return self._started
+
+    def get_job_names(self) -> list[str]:
+        """登録済みジョブ名の一覧を返す."""
+        return [job.id for job in self._scheduler.get_jobs()]
+
+    def start(self) -> None:
+        """スケジューラを起動する (初回ヘルスチェックも実行)."""
+        if not self._started:
+            self._scheduler.start()
+            self._started = True
+            # 起動直後に初回ヘルスチェックを実行
+            asyncio.ensure_future(_run_health_check(self._ctx))
+            logger.info("スケジューラ起動")
+
+    def shutdown(self) -> None:
+        """スケジューラを停止する."""
+        if self._started:
+            self._scheduler.shutdown(wait=False)
+            self._started = False
+            logger.info("スケジューラ停止")
+
+    def get_status(self) -> dict:
+        """スケジューラのステータスを返す."""
+        jobs = []
+        for job in self._scheduler.get_jobs():
+            next_run = getattr(job, "next_run_time", None)
+            job_info: dict = {
+                "name": job.id,
+                "trigger": self._job_configs.get(job.id, {}).get("trigger", "unknown"),
+                "next_run": str(next_run) if next_run else None,
+            }
+            jobs.append(job_info)
+        return {
+            "running": self.is_running,
+            "jobs": jobs,
+        }
+
+    async def trigger_job(self, job_name: str) -> dict:
+        """ジョブを手動でトリガーする."""
+        if job_name not in _JOB_FUNCS:
+            raise ValueError(f"Unknown job: {job_name}")
+
+        func = _JOB_FUNCS[job_name]
+        # 非同期でジョブを実行（バックグラウンドタスク）
+        asyncio.create_task(func(self._ctx))
+        logger.info("ジョブ手動トリガー: %s", job_name)
+        return {"job": job_name, "status": "triggered"}

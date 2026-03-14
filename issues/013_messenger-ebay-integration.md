@@ -20,3 +20,8 @@ eBay からのメッセージ取得と返信送信が未実装。
 ## 関連ファイル
 - `src/ec_hub/modules/messenger.py` (L203, L220 に TODO)
 - `src/ec_hub/services/ebay_api.py`
+
+## 残課題
+- `Messenger.check_new_messages()` はまだスタブで、eBay Trading API からの受信取得処理が未実装
+- 自動返信は DB 保存までで止まっており、eBay API 経由の実送信が未実装
+- メッセージ受信 / 送信の失敗時リトライや同期エラー処理が未実装

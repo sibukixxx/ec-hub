@@ -26,3 +26,9 @@
 - `src/ec_hub/modules/*.py`
 - `src/ec_hub/db/database.py`
 - `frontend/src/pages/Dashboard.jsx`
+
+## 完了済み残課題
+- [x] Scheduler の定期実行が JobRunner を経由して job_runs テーブルに記録されるようになった (`scheduler.py` の `_run_*` 関数を JobRunner でラップ)
+- [x] `integration_status` の自動更新: `health_checker.py` を追加し、eBay / DeepL / Claude / Amazon / 楽天 / LINE の6サービスの設定状態を30分ごとに自動チェック・更新。起動時にも初回チェックを実行
+- [x] `Dashboard.tsx` にサービス劣化アラート、ジョブ失敗アラート、直近ジョブ実行履歴テーブルを表示
+- [x] LINE 通知に severity レベル (INFO / WARNING / CRITICAL) と重複抑止 (dedupe) を実装。`min_severity` でフィルタリング、同一メッセージは1時間以内に再送しない

@@ -8,40 +8,49 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from ec_hub.config import get_frontend_dist_path
 from ec_hub.context import AppContext
 from ec_hub.exceptions import InvalidStatusError, NotFoundError
+from ec_hub.modules.matcher import calc_match_score
 from ec_hub.modules.price_predictor import PricePredictor
 from ec_hub.modules.profit_tracker import ProfitTracker
+from ec_hub.scheduler import Scheduler
 from ec_hub.scrapers.ebay import EbayScraper
+from ec_hub.services.research_service import ResearchService
 from ec_hub.usecases.dashboard import DashboardUseCase
 from ec_hub.usecases.export import ExportUseCase
 from ec_hub.usecases.listing import ListingUseCase
 from ec_hub.usecases.message import MessageUseCase
 from ec_hub.usecases.order import OrderUseCase
 from ec_hub.usecases.profit_calc import ProfitCalcUseCase
-from ec_hub.usecases.research import ResearchUseCase
 
 logger = logging.getLogger(__name__)
 
-STATIC_DIR = Path(__file__).parent.parent.parent / "frontend" / "dist"
+STATIC_DIR = get_frontend_dist_path()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    ctx = AppContext.create()
+    ctx = AppContext.create(validate_services=True)
     await ctx.connect()
     app.state.ctx = ctx
-    logger.info("API server started, AppContext connected")
+
+    scheduler = Scheduler(ctx)
+    scheduler.start()
+    app.state.scheduler = scheduler
+    logger.info("API server started, AppContext connected, Scheduler started")
+
     yield
+
+    scheduler.shutdown()
     await ctx.close()
 
 
@@ -220,6 +229,7 @@ async def compare_prices(
                 "price_jpy": int((p.price or 0) * fx_rate),
                 "url": p.url,
                 "image_url": p.image_url,
+                "category": p.category,
                 "condition": p.condition.value if p.condition else None,
                 "shipping": {
                     "cost": p.shipping.cost if p.shipping else None,
@@ -231,13 +241,38 @@ async def compare_prices(
     candidates = await ctx.candidates.list(limit=200)
     keyword_lower = req.keyword.lower()
     matched = []
+    compare_anchor = ebay_items[0] if ebay_items else None
     for c in candidates:
         title = (c.get("title_jp") or "") + " " + (c.get("title_en") or "")
         if keyword_lower in title.lower():
-            matched.append(c)
+            enriched = dict(c)
+            if compare_anchor:
+                compare_match = calc_match_score(
+                    compare_anchor["title"],
+                    title,
+                    ebay_price_usd=compare_anchor.get("price_usd"),
+                    source_price_jpy=c.get("cost_jpy"),
+                    fx_rate=fx_rate,
+                    ebay_category=compare_anchor.get("category"),
+                    source_category=c.get("category"),
+                )
+                enriched["compare_match_score"] = compare_match["score"]
+                enriched["compare_match_reason"] = " / ".join(compare_match["reasons"])
+            matched.append(enriched)
+
+    matched.sort(
+        key=lambda c: (
+            c.get("compare_match_score")
+            if c.get("compare_match_score") is not None
+            else c.get("match_score", -1),
+            c.get("match_score", -1),
+            c.get("margin_rate", 0),
+        ),
+        reverse=True,
+    )
 
     # ML prediction
-    predictor = PricePredictor(ctx.db)
+    predictor = PricePredictor(ctx.db, ctx.settings)
     predictor.load()
     if not predictor.is_trained:
         await predictor.train(min_samples=5)
@@ -258,7 +293,7 @@ async def predict_price(
     req: PricePredictRequest,
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict:
-    predictor = PricePredictor(ctx.db)
+    predictor = PricePredictor(ctx.db, ctx.settings)
     predictor.load()
     if not predictor.is_trained:
         await predictor.train(min_samples=5)
@@ -281,7 +316,7 @@ async def predict_price(
 async def train_model(
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict:
-    predictor = PricePredictor(ctx.db)
+    predictor = PricePredictor(ctx.db, ctx.settings)
     score = await predictor.train(min_samples=5)
     if score > 0:
         predictor.save()
@@ -318,11 +353,18 @@ async def get_research_run(
 async def research_run(
     req: ResearchRunRequest,
     ctx: Annotated[AppContext, Depends(get_ctx)],
+    background_tasks: BackgroundTasks,
 ) -> dict:
-    """リサーチを手動実行する."""
-    uc = ResearchUseCase(ctx)
-    registered = await uc.run(keywords=req.keywords, pages=req.pages)
-    return {"registered": registered, "status": "completed"}
+    """リサーチを非同期で実行する.
+
+    即座に run_id を返し、バックグラウンドでリサーチを実行する。
+    進捗は GET /api/research/runs/{run_id} で確認可能
+    (completed_at が NULL なら実行中)。
+    """
+    svc = ResearchService(ctx)
+    run_id = await svc.start_research(keywords=req.keywords, pages=req.pages)
+    background_tasks.add_task(svc.execute_research, run_id, req.keywords, req.pages)
+    return {"run_id": run_id, "status": "running"}
 
 
 # --- 出品 ---
@@ -453,6 +495,31 @@ async def export_data(
         headers["Content-Disposition"] = f'attachment; filename="{data_type}.csv"'
 
     return Response(content=content, media_type=media_type, headers=headers)
+
+
+# --- スケジューラ ---
+
+
+@app.get("/api/scheduler/status")
+async def scheduler_status() -> dict:
+    """スケジューラの状態を確認する."""
+    scheduler: Scheduler | None = getattr(app.state, "scheduler", None)
+    if scheduler is None:
+        # テスト環境などスケジューラ未初期化時のフォールバック
+        return {"running": False, "jobs": []}
+    return scheduler.get_status()
+
+
+@app.post("/api/scheduler/trigger/{job_name}")
+async def trigger_job(job_name: str) -> dict:
+    """ジョブを手動トリガーする."""
+    scheduler: Scheduler | None = getattr(app.state, "scheduler", None)
+    if scheduler is None:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+    try:
+        return await scheduler.trigger_job(job_name)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 # --- 静的ファイル配信 (ビルド済みフロントエンド) ---

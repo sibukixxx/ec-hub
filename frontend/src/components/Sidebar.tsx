@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'preact/hooks';
 import { getCurrentUrl, route } from 'preact-router';
+import { useState, useEffect } from 'preact/hooks';
 
 const links = [
   { href: '/', label: 'Dashboard' },
+  { href: '/operations', label: 'Operations' },
   { href: '/candidates', label: 'Candidates' },
   { href: '/compare', label: 'Price Compare' },
+  { href: '/messages', label: 'Messages' },
   { href: '/orders', label: 'Orders' },
   { href: '/calc', label: 'Profit Calc' },
 ];
@@ -18,7 +20,7 @@ export function Sidebar() {
     return () => removeEventListener('popstate', handler);
   }, []);
 
-  const navigate = (href) => (e) => {
+  const navigate = (href: string) => (e: Event) => {
     e.preventDefault();
     route(href);
     setUrl(href);

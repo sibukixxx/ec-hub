@@ -299,6 +299,21 @@ async def test_get_listing_by_sku_returns_none_when_not_exists(db):
     assert result is None
 
 
+async def test_get_listing_by_external_id_returns_listing(db):
+    cid = await _create_candidate(db)
+    await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-EXT",
+        title_en="External ID Test",
+        listed_price_usd=50.0,
+        listed_fx_rate=150.0,
+        listing_id="EBAY-LISTING-001",
+    )
+    result = await db.get_listing_by_external_id("EBAY-LISTING-001")
+    assert result is not None
+    assert result["sku"] == "ECHUB-EXT"
+
+
 async def test_update_listing(db):
     cid = await _create_candidate(db)
     lid = await db.add_listing(
@@ -335,6 +350,27 @@ async def test_add_order_with_listing_id(db):
     assert order["candidate_id"] == cid
 
 
+async def test_add_order_derives_candidate_from_listing(db):
+    cid = await _create_candidate(db)
+    lid = await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-DERIVE",
+        title_en="Derived Candidate",
+        listed_price_usd=80.0,
+        listed_fx_rate=150.0,
+    )
+    oid = await db.add_order(
+        ebay_order_id="ORD-DERIVE-001",
+        listing_id=lid,
+        sale_price_usd=80.0,
+    )
+    order = await db.get_order_by_id(oid)
+    assert order["listing_id"] == lid
+    assert order["candidate_id"] == cid
+    assert order["listing_sku"] == "ECHUB-DERIVE"
+    assert order["candidate_item_code"] == "B09LISTING"
+
+
 async def test_add_message_with_listing_id(db):
     cid = await _create_candidate(db)
     lid = await db.add_listing(
@@ -358,6 +394,86 @@ async def test_add_message_with_listing_id(db):
     )
     msg = await db.get_message_by_id(mid)
     assert msg["listing_id"] == lid
+
+
+async def test_get_listing_by_ebay_listing_id_returns_listing(db):
+    """eBay listing_idで出品を検索できる."""
+    cid = await _create_candidate(db)
+    lid = await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-EBAY-LID",
+        title_en="eBay Listing ID Test",
+        listed_price_usd=80.0,
+        listed_fx_rate=150.0,
+        listing_id="EBAY-LIST-12345",
+    )
+    result = await db.get_listing_by_ebay_listing_id("EBAY-LIST-12345")
+    assert result is not None
+    assert result["id"] == lid
+    assert result["sku"] == "ECHUB-EBAY-LID"
+
+
+async def test_get_listing_by_ebay_listing_id_returns_none_when_not_exists(db):
+    """存在しないeBay listing_idでNoneを返す."""
+    result = await db.get_listing_by_ebay_listing_id("NONEXISTENT")
+    assert result is None
+
+
+async def test_get_listings_by_status(db):
+    """ステータスで出品一覧を取得できる."""
+    cid = await _create_candidate(db)
+    await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-STAT-1",
+        title_en="Active Listing",
+        listed_price_usd=50.0,
+    )
+    lid2 = await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-STAT-2",
+        title_en="Sold Listing",
+        listed_price_usd=60.0,
+    )
+    await db.update_listing(lid2, status="sold")
+
+    active = await db.get_listings(status="active")
+    assert len(active) == 1
+    assert active[0]["sku"] == "ECHUB-STAT-1"
+
+    sold = await db.get_listings(status="sold")
+    assert len(sold) == 1
+    assert sold[0]["sku"] == "ECHUB-STAT-2"
+
+    all_listings = await db.get_listings()
+    assert len(all_listings) == 2
+
+
+async def test_add_message_derives_links_from_order(db):
+    cid = await _create_candidate(db)
+    lid = await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-MSG-ORD",
+        title_en="Message Derive Test",
+        listed_price_usd=80.0,
+        listed_fx_rate=150.0,
+    )
+    oid = await db.add_order(
+        ebay_order_id="ORD-MSG-DERIVE",
+        listing_id=lid,
+        sale_price_usd=80.0,
+    )
+    mid = await db.add_message(
+        buyer_username="buyer_trace",
+        body="Where is my order?",
+        order_id=oid,
+    )
+    msg = await db.get_message_by_id(mid)
+    assert msg["order_id"] == oid
+    assert msg["listing_id"] == lid
+    assert msg["candidate_id"] == cid
+    assert msg["order_ebay_order_id"] == "ORD-MSG-DERIVE"
+    assert msg["listing_sku"] == "ECHUB-MSG-ORD"
+    assert msg["candidate_item_code"] == "B09LISTING"
 
 
 
@@ -580,3 +696,61 @@ async def test_get_all_integration_status_returns_multiple(db):
     assert len(statuses) == 3
     names = {s["service_name"] for s in statuses}
     assert names == {"ebay_api", "deepl", "amazon_api"}
+
+
+async def test_get_integration_status_returns_single_service(db):
+    await db.upsert_integration_status(
+        service_name="exchange_rate",
+        status="degraded",
+        error_message="Using static fallback 150.00",
+    )
+
+    status = await db.get_integration_status("exchange_rate")
+    assert status is not None
+    assert status["service_name"] == "exchange_rate"
+    assert status["status"] == "degraded"
+    assert status["error_message"] == "Using static fallback 150.00"
+
+
+# --- exchange_rate_cache ---
+
+
+async def test_upsert_and_get_exchange_rate_cache(db):
+    await db.upsert_exchange_rate_cache(
+        base_currency="USD",
+        quote_currency="JPY",
+        rate=157.2,
+        source="https://fx.example/latest/USD",
+        fetched_at="2026-03-14T12:00:00+00:00",
+    )
+
+    cached = await db.get_exchange_rate_cache()
+    assert cached is not None
+    assert cached["base_currency"] == "USD"
+    assert cached["quote_currency"] == "JPY"
+    assert cached["rate"] == 157.2
+    assert cached["source"] == "https://fx.example/latest/USD"
+    assert cached["fetched_at"] == "2026-03-14T12:00:00+00:00"
+
+
+async def test_upsert_exchange_rate_cache_updates_existing_record(db):
+    await db.upsert_exchange_rate_cache(
+        base_currency="USD",
+        quote_currency="JPY",
+        rate=155.0,
+        source="https://primary.example/latest/USD",
+        fetched_at="2026-03-14T10:00:00+00:00",
+    )
+    await db.upsert_exchange_rate_cache(
+        base_currency="USD",
+        quote_currency="JPY",
+        rate=156.8,
+        source="https://fallback.example/latest/USD",
+        fetched_at="2026-03-14T11:00:00+00:00",
+    )
+
+    cached = await db.get_exchange_rate_cache()
+    assert cached is not None
+    assert cached["rate"] == 156.8
+    assert cached["source"] == "https://fallback.example/latest/USD"
+    assert cached["fetched_at"] == "2026-03-14T11:00:00+00:00"

@@ -21,3 +21,9 @@
 ## 関連ファイル
 - `src/ec_hub/modules/profit_tracker.py`
 - `src/ec_hub/api.py`
+
+## 完了確認
+- `src/ec_hub/modules/profit_tracker.py` で `exchange_rate_cache` を使った最終成功レートの DB 永続化と TTL キャッシュを実装済み
+- `exchange_rate.base_url` と `exchange_rate.fallback_urls` を順に試すフォールバックチェーン、および `exchange_rate.cache_ttl_minutes` による更新間隔設定が入った
+- API 失敗時は保存済みレートまたは静的フォールバックへ段階的に退避し、`integration_status` 更新と LINE 通知を行う
+- フロントエンドの Dashboard では `exchange_rate` の health 状態を参照してフォールバック利用中の警告を表示する

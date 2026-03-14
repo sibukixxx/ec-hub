@@ -23,6 +23,18 @@ import unicodedata
 DEFAULT_MATCH_THRESHOLD = 40
 
 
+def normalize_match_threshold(threshold: float | int | None) -> int:
+    """Normalize threshold to the scorer's 0-100 scale."""
+    if threshold is None:
+        return DEFAULT_MATCH_THRESHOLD
+
+    value = float(threshold)
+    if 0 < value <= 1:
+        value *= 100
+
+    return max(0, min(100, int(round(value))))
+
+
 def normalize_title(title: str) -> str:
     """商品名を正規化する.
 
@@ -415,4 +427,4 @@ def calc_match_score(
 
 def is_good_match(match_result: dict, threshold: int = DEFAULT_MATCH_THRESHOLD) -> bool:
     """マッチスコアが閾値を超えているか判定する."""
-    return match_result["score"] >= threshold
+    return match_result["score"] >= normalize_match_threshold(threshold)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import aiosqlite
@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS messages (
     ebay_message_id TEXT UNIQUE,
     order_id INTEGER REFERENCES orders(id),
     listing_id INTEGER REFERENCES listings(id),
+    candidate_id INTEGER REFERENCES candidates(id),
     buyer_username TEXT NOT NULL,
     direction TEXT NOT NULL DEFAULT 'inbound',
     category TEXT,
@@ -133,6 +134,16 @@ CREATE TABLE IF NOT EXISTS integration_status (
     last_checked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS exchange_rate_cache (
+    base_currency TEXT NOT NULL,
+    quote_currency TEXT NOT NULL,
+    rate REAL NOT NULL,
+    source TEXT NOT NULL,
+    fetched_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (base_currency, quote_currency)
+);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_dedup
     ON candidates(source_site, item_code, ebay_item_id)
     WHERE ebay_item_id IS NOT NULL;
@@ -143,10 +154,12 @@ CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_ordered_at ON orders(ordered_at);
 CREATE INDEX IF NOT EXISTS idx_orders_listing ON orders(listing_id);
+CREATE INDEX IF NOT EXISTS idx_listings_external_id ON listings(listing_id);
 CREATE INDEX IF NOT EXISTS idx_messages_buyer ON messages(buyer_username);
 CREATE INDEX IF NOT EXISTS idx_messages_listing ON messages(listing_id);
 CREATE INDEX IF NOT EXISTS idx_job_runs_job_name ON job_runs(job_name);
 CREATE INDEX IF NOT EXISTS idx_job_runs_started_at ON job_runs(started_at);
+CREATE INDEX IF NOT EXISTS idx_exchange_rate_cache_updated_at ON exchange_rate_cache(updated_at);
 """
 
 
@@ -175,6 +188,7 @@ class Database:
         self._db = await aiosqlite.connect(self._db_path)
         self._db.row_factory = aiosqlite.Row
         await self._db.executescript(SCHEMA_SQL)
+        await self._ensure_schema_compatibility()
         await self._db.commit()
         logger.info("Database connected: %s", self._db_path)
 
@@ -194,6 +208,21 @@ class Database:
         if self._db is None:
             raise RuntimeError("Database not connected. Call connect() first.")
         return self._db
+
+    async def _table_columns(self, table_name: str) -> set[str]:
+        cursor = await self.db.execute(f"PRAGMA table_info({table_name})")  # noqa: S608
+        rows = await cursor.fetchall()
+        return {row["name"] for row in rows}
+
+    async def _ensure_schema_compatibility(self) -> None:
+        message_columns = await self._table_columns("messages")
+        if "candidate_id" not in message_columns:
+            await self.db.execute(
+                "ALTER TABLE messages ADD COLUMN candidate_id INTEGER REFERENCES candidates(id)"
+            )
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_messages_candidate ON messages(candidate_id)"
+        )
 
     # --- Research Runs ---
 
@@ -447,6 +476,45 @@ class Database:
         await self.db.commit()
         return cursor.lastrowid  # type: ignore[return-value]
 
+    async def upsert_listing(
+        self,
+        *,
+        candidate_id: int,
+        sku: str,
+        title_en: str,
+        listed_price_usd: float,
+        listed_fx_rate: float | None = None,
+        offer_id: str | None = None,
+        listing_id: str | None = None,
+        description_html: str | None = None,
+        status: str = "active",
+    ) -> int:
+        existing = await self.get_listing_by_sku(sku)
+        if existing:
+            await self.update_listing(
+                existing["id"],
+                candidate_id=candidate_id,
+                offer_id=offer_id,
+                listing_id=listing_id,
+                title_en=title_en,
+                description_html=description_html,
+                listed_price_usd=listed_price_usd,
+                listed_fx_rate=listed_fx_rate,
+                status=status,
+            )
+            return int(existing["id"])
+        return await self.add_listing(
+            candidate_id=candidate_id,
+            sku=sku,
+            title_en=title_en,
+            listed_price_usd=listed_price_usd,
+            listed_fx_rate=listed_fx_rate,
+            offer_id=offer_id,
+            listing_id=listing_id,
+            description_html=description_html,
+            status=status,
+        )
+
     async def get_listing_by_id(self, listing_id: int) -> dict | None:
         cursor = await self.db.execute(
             "SELECT * FROM listings WHERE id = ?", (listing_id,)
@@ -460,6 +528,49 @@ class Database:
         )
         row = await cursor.fetchone()
         return dict(row) if row else None
+
+    async def get_listing_by_ebay_listing_id(self, ebay_listing_id: str) -> dict | None:
+        """eBay listing_idで出品を検索する."""
+        cursor = await self.db.execute(
+            "SELECT * FROM listings WHERE listing_id = ?", (ebay_listing_id,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def get_listing_by_offer_id(self, offer_id: str) -> dict | None:
+        cursor = await self.db.execute(
+            "SELECT * FROM listings WHERE offer_id = ?", (offer_id,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    # Alias for get_listing_by_ebay_listing_id
+    get_listing_by_external_id = get_listing_by_ebay_listing_id
+
+    async def get_listings(self, status: str | None = None, limit: int = 50) -> list[dict]:
+        if status:
+            cursor = await self.db.execute(
+                "SELECT * FROM listings WHERE status = ? ORDER BY created_at DESC LIMIT ?",
+                (status, limit),
+            )
+        else:
+            cursor = await self.db.execute(
+                "SELECT * FROM listings ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    async def count_listings_by_status(self, status: str | None = None) -> int:
+        if status:
+            cursor = await self.db.execute(
+                "SELECT COUNT(*) FROM listings WHERE status = ?",
+                (status,),
+            )
+        else:
+            cursor = await self.db.execute("SELECT COUNT(*) FROM listings")
+        row = await cursor.fetchone()
+        return int(row[0])
 
     async def update_listing(self, id_: int, **fields: object) -> None:
         if not fields:
@@ -484,6 +595,10 @@ class Database:
         sale_price_usd: float,
         destination_country: str | None = None,
     ) -> int:
+        if candidate_id is None and listing_id is not None:
+            listing = await self.get_listing_by_id(listing_id)
+            if listing:
+                candidate_id = listing.get("candidate_id")
         cursor = await self.db.execute(
             """INSERT INTO orders
             (ebay_order_id, candidate_id, listing_id, buyer_username, sale_price_usd, destination_country)
@@ -496,7 +611,23 @@ class Database:
     async def get_order_by_id(self, order_id: int) -> dict | None:
         """IDで注文を1件取得する."""
         cursor = await self.db.execute(
-            "SELECT * FROM orders WHERE id = ?", (order_id,)
+            """SELECT
+                o.*,
+                l.sku AS listing_sku,
+                l.offer_id AS listing_offer_id,
+                l.listing_id AS listing_external_id,
+                l.title_en AS listing_title_en,
+                l.status AS listing_status,
+                c.item_code AS candidate_item_code,
+                c.title_jp AS candidate_title_jp,
+                c.title_en AS candidate_title_en,
+                c.source_site AS candidate_source_site,
+                c.status AS candidate_status
+            FROM orders o
+            LEFT JOIN listings l ON o.listing_id = l.id
+            LEFT JOIN candidates c ON o.candidate_id = c.id
+            WHERE o.id = ?""",
+            (order_id,),
         )
         row = await cursor.fetchone()
         return dict(row) if row else None
@@ -504,12 +635,43 @@ class Database:
     async def get_orders(self, status: str | None = None, limit: int = 50) -> list[dict]:
         if status:
             cursor = await self.db.execute(
-                "SELECT * FROM orders WHERE status = ? ORDER BY ordered_at DESC LIMIT ?",
+                """SELECT
+                    o.*,
+                    l.sku AS listing_sku,
+                    l.offer_id AS listing_offer_id,
+                    l.listing_id AS listing_external_id,
+                    l.title_en AS listing_title_en,
+                    l.status AS listing_status,
+                    c.item_code AS candidate_item_code,
+                    c.title_jp AS candidate_title_jp,
+                    c.title_en AS candidate_title_en,
+                    c.source_site AS candidate_source_site,
+                    c.status AS candidate_status
+                FROM orders o
+                LEFT JOIN listings l ON o.listing_id = l.id
+                LEFT JOIN candidates c ON o.candidate_id = c.id
+                WHERE o.status = ? ORDER BY o.ordered_at DESC LIMIT ?""",
                 (status, limit),
             )
         else:
             cursor = await self.db.execute(
-                "SELECT * FROM orders ORDER BY ordered_at DESC LIMIT ?", (limit,)
+                """SELECT
+                    o.*,
+                    l.sku AS listing_sku,
+                    l.offer_id AS listing_offer_id,
+                    l.listing_id AS listing_external_id,
+                    l.title_en AS listing_title_en,
+                    l.status AS listing_status,
+                    c.item_code AS candidate_item_code,
+                    c.title_jp AS candidate_title_jp,
+                    c.title_en AS candidate_title_en,
+                    c.source_site AS candidate_source_site,
+                    c.status AS candidate_status
+                FROM orders o
+                LEFT JOIN listings l ON o.listing_id = l.id
+                LEFT JOIN candidates c ON o.candidate_id = c.id
+                ORDER BY o.ordered_at DESC LIMIT ?""",
+                (limit,),
             )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
@@ -554,14 +716,34 @@ class Database:
         ebay_message_id: str | None = None,
         order_id: int | None = None,
         listing_id: int | None = None,
+        candidate_id: int | None = None,
         category: str | None = None,
         auto_replied: bool = False,
     ) -> int:
+        if order_id is not None:
+            order = await self.get_order_by_id(order_id)
+            if order:
+                listing_id = listing_id or order.get("listing_id")
+                candidate_id = candidate_id or order.get("candidate_id")
+        if candidate_id is None and listing_id is not None:
+            listing = await self.get_listing_by_id(listing_id)
+            if listing:
+                candidate_id = listing.get("candidate_id")
         cursor = await self.db.execute(
             """INSERT INTO messages
-            (ebay_message_id, order_id, listing_id, buyer_username, direction, category, body, auto_replied)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (ebay_message_id, order_id, listing_id, buyer_username, direction, category, body, int(auto_replied)),
+            (ebay_message_id, order_id, listing_id, candidate_id, buyer_username, direction, category, body, auto_replied)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                ebay_message_id,
+                order_id,
+                listing_id,
+                candidate_id,
+                buyer_username,
+                direction,
+                category,
+                body,
+                int(auto_replied),
+            ),
         )
         await self.db.commit()
         return cursor.lastrowid  # type: ignore[return-value]
@@ -571,18 +753,67 @@ class Database:
     ) -> list[dict]:
         if buyer_username:
             cursor = await self.db.execute(
-                "SELECT * FROM messages WHERE buyer_username = ? ORDER BY created_at DESC LIMIT ?",
+                """SELECT
+                    m.*,
+                    o.ebay_order_id AS order_ebay_order_id,
+                    l.sku AS listing_sku,
+                    l.offer_id AS listing_offer_id,
+                    l.listing_id AS listing_external_id,
+                    l.status AS listing_status,
+                    c.item_code AS candidate_item_code,
+                    c.title_jp AS candidate_title_jp,
+                    c.title_en AS candidate_title_en,
+                    c.status AS candidate_status
+                FROM messages m
+                LEFT JOIN orders o ON m.order_id = o.id
+                LEFT JOIN listings l ON m.listing_id = l.id
+                LEFT JOIN candidates c ON m.candidate_id = c.id
+                WHERE m.buyer_username = ? ORDER BY m.created_at DESC LIMIT ?""",
                 (buyer_username, limit),
             )
         else:
             cursor = await self.db.execute(
-                "SELECT * FROM messages ORDER BY created_at DESC LIMIT ?", (limit,)
+                """SELECT
+                    m.*,
+                    o.ebay_order_id AS order_ebay_order_id,
+                    l.sku AS listing_sku,
+                    l.offer_id AS listing_offer_id,
+                    l.listing_id AS listing_external_id,
+                    l.status AS listing_status,
+                    c.item_code AS candidate_item_code,
+                    c.title_jp AS candidate_title_jp,
+                    c.title_en AS candidate_title_en,
+                    c.status AS candidate_status
+                FROM messages m
+                LEFT JOIN orders o ON m.order_id = o.id
+                LEFT JOIN listings l ON m.listing_id = l.id
+                LEFT JOIN candidates c ON m.candidate_id = c.id
+                ORDER BY m.created_at DESC LIMIT ?""",
+                (limit,),
             )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
     async def get_message_by_id(self, message_id: int) -> dict | None:
-        cursor = await self.db.execute("SELECT * FROM messages WHERE id = ?", (message_id,))
+        cursor = await self.db.execute(
+            """SELECT
+                m.*,
+                o.ebay_order_id AS order_ebay_order_id,
+                l.sku AS listing_sku,
+                l.offer_id AS listing_offer_id,
+                l.listing_id AS listing_external_id,
+                l.status AS listing_status,
+                c.item_code AS candidate_item_code,
+                c.title_jp AS candidate_title_jp,
+                c.title_en AS candidate_title_en,
+                c.status AS candidate_status
+            FROM messages m
+            LEFT JOIN orders o ON m.order_id = o.id
+            LEFT JOIN listings l ON m.listing_id = l.id
+            LEFT JOIN candidates c ON m.candidate_id = c.id
+            WHERE m.id = ?""",
+            (message_id,),
+        )
         row = await cursor.fetchone()
         return dict(row) if row else None
 
@@ -700,3 +931,50 @@ class Database:
         )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+    async def get_integration_status(self, service_name: str) -> dict | None:
+        cursor = await self.db.execute(
+            "SELECT * FROM integration_status WHERE service_name = ?",
+            (service_name,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    # --- Exchange Rate Cache ---
+
+    async def upsert_exchange_rate_cache(
+        self,
+        *,
+        base_currency: str,
+        quote_currency: str,
+        rate: float,
+        source: str,
+        fetched_at: str | None = None,
+    ) -> None:
+        timestamp = fetched_at or datetime.now(timezone.utc).isoformat()
+        await self.db.execute(
+            """INSERT INTO exchange_rate_cache
+            (base_currency, quote_currency, rate, source, fetched_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(base_currency, quote_currency) DO UPDATE SET
+                rate = excluded.rate,
+                source = excluded.source,
+                fetched_at = excluded.fetched_at,
+                updated_at = CURRENT_TIMESTAMP""",
+            (base_currency, quote_currency, rate, source, timestamp),
+        )
+        await self.db.commit()
+
+    async def get_exchange_rate_cache(
+        self,
+        *,
+        base_currency: str = "USD",
+        quote_currency: str = "JPY",
+    ) -> dict | None:
+        cursor = await self.db.execute(
+            """SELECT * FROM exchange_rate_cache
+            WHERE base_currency = ? AND quote_currency = ?""",
+            (base_currency, quote_currency),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None

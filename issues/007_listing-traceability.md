@@ -37,3 +37,8 @@
 - `src/ec_hub/services/ebay_api.py`
 - `src/ec_hub/db/database.py`
 - `src/ec_hub/models.py`
+
+## 残課題
+- `OrderManager` は SKU / `listingId` / `offerId` から `listing_id` と `candidate_id` を逆引きできるようになったが、複数 line item を含む注文でも `orders` レコードには先頭の 1 件しか保持しておらず、明細単位のトレースはできない
+- `messages` / `orders` / `listings` / `candidates` の関連は DB と手動返信フローで辿れる一方、`Messenger.check_new_messages()` が未実装のため、実際の eBay 受信メッセージを自動で紐付ける経路はまだない
+- 状態遷移は `Lister` と `OrderManager` 内に分散しており、`listed` / `sold` / `completed` / `cancelled` / `returned` を横断した一貫した状態機械は未整備

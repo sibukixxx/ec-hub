@@ -395,6 +395,39 @@ async def test_find_source_price_rejects_low_match(researcher):
     assert match is None
 
 
+async def test_find_source_price_normalizes_ratio_threshold(db, fee_rules):
+    settings = {
+        "exchange_rate": {"fallback_rate": 150.0},
+        "database": {"path": ":memory:"},
+        "research": {"match_threshold": 0.6},
+        "amazon": {},
+        "rakuten": {},
+        "line": {},
+    }
+    researcher = Researcher(db, settings, fee_rules)
+    searcher = MockSourceSearcher(
+        [
+            SourceProduct(
+                item_code="A001",
+                source_site="mock",
+                title="Bandai Gundam RG RX-78-2 1/144",
+                price_jpy=2000,
+                url="https://example.com/a001",
+            ),
+        ]
+    )
+
+    result, match = await researcher.find_source_price(
+        "Gundam",
+        [searcher],
+        ebay_title="Bandai Gundam RG RX-78-2 1/144 Model Kit",
+        ebay_price_usd=30.0,
+    )
+    assert researcher.match_threshold == 60
+    assert result is not None
+    assert match is not None
+
+
 async def test_research_single_stores_match_data(researcher):
     """research_singleがmatch_scoreとmatch_reasonをDBに保存する."""
     searcher = MockSourceSearcher(
