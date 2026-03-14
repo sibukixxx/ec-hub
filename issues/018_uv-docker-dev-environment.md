@@ -11,17 +11,17 @@ README と `CLAUDE.md` は `uv` 前提で記述されているが、現状の実
 - バックエンドとフロントエンドの起動前提がローカル依存
 
 ## やるべきこと
-- [ ] `uv` の導入手順を README に追加する
+- [x] `uv` の導入手順を README に追加する
   - macOS
   - Linux
   - Windows
-- [ ] `uv sync` だけでバックエンドが動く前提を検証する
-- [ ] Docker ベースでの開発手段を追加する
+- [x] `uv sync` だけでバックエンドが動く前提を検証する
+- [x] Docker ベースでの開発手段を追加する
   - `Dockerfile`
   - `docker-compose.yml`
   - 必要なら `frontend` 用サービス
-- [ ] コンテナ内で `uv run pytest` / `uv run uvicorn ...` / `pnpm dev` が実行できるようにする
-- [ ] `.dockerignore` とローカル DB / 設定ファイルのマウント方針を整理する
+- [x] コンテナ内で `uv run pytest` / `uv run uvicorn ...` / `pnpm dev` が実行できるようにする
+- [x] `.dockerignore` とローカル DB / 設定ファイルのマウント方針を整理する
 
 ## 優先度
 **中** — オンボーディングと検証再現性の改善
