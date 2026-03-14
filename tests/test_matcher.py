@@ -329,3 +329,80 @@ def test_is_good_match_accepts_ratio_threshold():
     result = {"score": 55, "reasons": [], "details": {}}
     assert is_good_match(result, threshold=0.5) is True
     assert is_good_match(result, threshold=0.6) is False
+
+
+# --- review/rating scoring ---
+
+
+def test_match_score_high_review_count_bonus():
+    """レビュー数が多い仕入れ商品にはボーナスが付く."""
+    result_with_reviews = calc_match_score(
+        "Test Product",
+        "テスト商品",
+        source_review_count=100,
+    )
+    result_without_reviews = calc_match_score(
+        "Test Product",
+        "テスト商品",
+    )
+    assert result_with_reviews["score"] > result_without_reviews["score"]
+    assert result_with_reviews["details"]["source_review_count"] == 100
+
+
+def test_match_score_low_review_count_no_bonus():
+    """レビューが少ない場合はボーナスなし."""
+    result = calc_match_score(
+        "Test Product",
+        "テスト商品",
+        source_review_count=2,
+    )
+    result_none = calc_match_score(
+        "Test Product",
+        "テスト商品",
+    )
+    assert result["score"] == result_none["score"]
+
+
+def test_match_score_high_rating_bonus():
+    """高評価の仕入れ商品にはボーナスが付く."""
+    result_high = calc_match_score(
+        "Test Product",
+        "テスト商品",
+        source_rating=4.5,
+    )
+    result_none = calc_match_score(
+        "Test Product",
+        "テスト商品",
+    )
+    assert result_high["score"] > result_none["score"]
+    assert result_high["details"]["source_rating"] == 4.5
+
+
+def test_match_score_low_rating_no_bonus():
+    """低評価ではボーナスなし."""
+    result = calc_match_score(
+        "Test Product",
+        "テスト商品",
+        source_rating=2.0,
+    )
+    result_none = calc_match_score(
+        "Test Product",
+        "テスト商品",
+    )
+    assert result["score"] == result_none["score"]
+
+
+def test_match_score_review_and_rating_combined():
+    """レビュー数と評価の両方が高い場合は両方のボーナスが付く."""
+    result = calc_match_score(
+        "Test Product",
+        "テスト商品",
+        source_review_count=50,
+        source_rating=4.8,
+    )
+    result_none = calc_match_score(
+        "Test Product",
+        "テスト商品",
+    )
+    # Both bonuses should apply
+    assert result["score"] >= result_none["score"] + 6

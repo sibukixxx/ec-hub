@@ -52,6 +52,7 @@ class _ConfigModel(_DictCompatMixin, BaseModel):
 # Settings sub-models
 # ---------------------------------------------------------------------------
 
+
 class EbaySite(str, Enum):
     EBAY_US = "EBAY_US"
     EBAY_GB = "EBAY_GB"
@@ -99,10 +100,12 @@ class YahooShoppingConfig(_ConfigModel):
 
 class ExchangeRateConfig(_ConfigModel):
     base_url: str = "https://api.exchangerate-api.com/v4/latest/USD"
-    fallback_urls: list[str] = Field(default_factory=lambda: [
-        "https://open.er-api.com/v6/latest/USD",
-        "https://api.frankfurter.app/latest?from=USD&to=JPY",
-    ])
+    fallback_urls: list[str] = Field(
+        default_factory=lambda: [
+            "https://open.er-api.com/v6/latest/USD",
+            "https://api.frankfurter.app/latest?from=USD&to=JPY",
+        ]
+    )
     fallback_rate: float = 150.0
     cache_ttl_minutes: int = 60
 
@@ -175,6 +178,7 @@ class ListingConfig(_ConfigModel):
 # ---------------------------------------------------------------------------
 # Root Settings model
 # ---------------------------------------------------------------------------
+
 
 class ServiceAvailability(BaseModel):
     """Service availability status after validation."""
@@ -255,6 +259,7 @@ class Settings(_ConfigModel):
 # Fee rules sub-models
 # ---------------------------------------------------------------------------
 
+
 class EbayFeesConfig(_ConfigModel):
     default_rate: float = 0.1325
     category_rates: dict[str, float] = Field(default_factory=dict)
@@ -302,6 +307,7 @@ class ShippingConfig(_ConfigModel):
 # ---------------------------------------------------------------------------
 # Root FeeRules model
 # ---------------------------------------------------------------------------
+
 
 class FeeRules(_ConfigModel):
     ebay_fees: EbayFeesConfig = Field(default_factory=EbayFeesConfig)

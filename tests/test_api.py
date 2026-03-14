@@ -117,25 +117,43 @@ async def test_candidates_crud(client, ctx):
 async def test_candidates_bulk_status_update(client, ctx):
     """POST /api/candidates/bulk-status updates multiple candidates."""
     cid1 = await ctx.db.add_candidate(
-        item_code="BULK01", source_site="amazon", title_jp="バルク1",
-        title_en=None, cost_jpy=1000, ebay_price_usd=30.0,
-        net_profit_jpy=1000, margin_rate=1.0,
+        item_code="BULK01",
+        source_site="amazon",
+        title_jp="バルク1",
+        title_en=None,
+        cost_jpy=1000,
+        ebay_price_usd=30.0,
+        net_profit_jpy=1000,
+        margin_rate=1.0,
     )
     cid2 = await ctx.db.add_candidate(
-        item_code="BULK02", source_site="amazon", title_jp="バルク2",
-        title_en=None, cost_jpy=2000, ebay_price_usd=50.0,
-        net_profit_jpy=2000, margin_rate=1.0,
+        item_code="BULK02",
+        source_site="amazon",
+        title_jp="バルク2",
+        title_en=None,
+        cost_jpy=2000,
+        ebay_price_usd=50.0,
+        net_profit_jpy=2000,
+        margin_rate=1.0,
     )
     _cid3 = await ctx.db.add_candidate(
-        item_code="BULK03", source_site="amazon", title_jp="バルク3",
-        title_en=None, cost_jpy=3000, ebay_price_usd=70.0,
-        net_profit_jpy=3000, margin_rate=1.0,
+        item_code="BULK03",
+        source_site="amazon",
+        title_jp="バルク3",
+        title_en=None,
+        cost_jpy=3000,
+        ebay_price_usd=70.0,
+        net_profit_jpy=3000,
+        margin_rate=1.0,
     )
 
-    resp = await client.post("/api/candidates/bulk-status", json={
-        "ids": [cid1, cid2],
-        "status": "approved",
-    })
+    resp = await client.post(
+        "/api/candidates/bulk-status",
+        json={
+            "ids": [cid1, cid2],
+            "status": "approved",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["updated_count"] == 2
@@ -150,19 +168,25 @@ async def test_candidates_bulk_status_update(client, ctx):
 
 async def test_candidates_bulk_status_invalid(client):
     """POST /api/candidates/bulk-status rejects invalid status."""
-    resp = await client.post("/api/candidates/bulk-status", json={
-        "ids": [1, 2],
-        "status": "invalid",
-    })
+    resp = await client.post(
+        "/api/candidates/bulk-status",
+        json={
+            "ids": [1, 2],
+            "status": "invalid",
+        },
+    )
     assert resp.status_code == 400
 
 
 async def test_candidates_bulk_status_empty_ids(client):
     """POST /api/candidates/bulk-status rejects empty ids."""
-    resp = await client.post("/api/candidates/bulk-status", json={
-        "ids": [],
-        "status": "approved",
-    })
+    resp = await client.post(
+        "/api/candidates/bulk-status",
+        json={
+            "ids": [],
+            "status": "approved",
+        },
+    )
     assert resp.status_code == 400
 
 
@@ -215,12 +239,15 @@ async def test_order_not_found(client):
 
 
 async def test_calc_profit(client):
-    resp = await client.post("/api/calc/profit", json={
-        "cost_jpy": 3000,
-        "ebay_price_usd": 50.0,
-        "weight_g": 500,
-        "destination": "US",
-    })
+    resp = await client.post(
+        "/api/calc/profit",
+        json={
+            "cost_jpy": 3000,
+            "ebay_price_usd": 50.0,
+            "weight_g": 500,
+            "destination": "US",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert "net_profit" in data
@@ -275,9 +302,14 @@ async def test_compare_includes_match_context(mock_scraper_cls, client, ctx):
 async def test_dashboard_with_data(client, ctx):
     """データがある場合のダッシュボード."""
     await ctx.db.add_candidate(
-        item_code="C1", source_site="amazon", title_jp="a",
-        title_en=None, cost_jpy=1000, ebay_price_usd=30.0,
-        net_profit_jpy=1000, margin_rate=1.0,
+        item_code="C1",
+        source_site="amazon",
+        title_jp="a",
+        title_en=None,
+        cost_jpy=1000,
+        ebay_price_usd=30.0,
+        net_profit_jpy=1000,
+        margin_rate=1.0,
     )
     oid = await ctx.db.add_order(
         ebay_order_id="DASH-001",
@@ -302,10 +334,13 @@ async def test_research_run(mock_start, mock_execute, client):
     """POST /api/research/run returns run_id and status running."""
     mock_start.return_value = 42
 
-    resp = await client.post("/api/research/run", json={
-        "keywords": ["test keyword"],
-        "pages": 1,
-    })
+    resp = await client.post(
+        "/api/research/run",
+        json={
+            "keywords": ["test keyword"],
+            "pages": 1,
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["run_id"] == 42
@@ -332,9 +367,14 @@ async def test_listing_run(client, ctx):
     """POST /api/listing/run lists approved candidates."""
     db = ctx.db
     cid = await db.add_candidate(
-        item_code="LIST01", source_site="amazon", title_jp="出品テスト",
-        title_en=None, cost_jpy=2000, ebay_price_usd=60.0,
-        net_profit_jpy=3000, margin_rate=1.5,
+        item_code="LIST01",
+        source_site="amazon",
+        title_jp="出品テスト",
+        title_en=None,
+        cost_jpy=2000,
+        ebay_price_usd=60.0,
+        net_profit_jpy=3000,
+        margin_rate=1.5,
     )
     await db.update_candidate_status(cid, "approved")
 
@@ -347,9 +387,15 @@ async def test_listing_run(client, ctx):
 async def test_listing_preview(client, ctx):
     """GET /api/listing/preview/{id} returns listing preview info."""
     cid = await ctx.db.add_candidate(
-        item_code="PREV01", source_site="amazon", title_jp="プレビューテスト",
-        title_en=None, cost_jpy=3000, ebay_price_usd=60.0,
-        net_profit_jpy=3000, margin_rate=1.0, weight_g=500,
+        item_code="PREV01",
+        source_site="amazon",
+        title_jp="プレビューテスト",
+        title_en=None,
+        cost_jpy=3000,
+        ebay_price_usd=60.0,
+        net_profit_jpy=3000,
+        margin_rate=1.0,
+        weight_g=500,
     )
     await ctx.db.update_candidate_status(cid, "approved")
 
@@ -375,22 +421,35 @@ async def test_listing_preview_not_found(client):
 async def test_listing_run_selected(client, ctx):
     """POST /api/listing/run with candidate_ids publishes only selected."""
     cid1 = await ctx.db.add_candidate(
-        item_code="SEL01", source_site="amazon", title_jp="選択出品1",
-        title_en=None, cost_jpy=2000, ebay_price_usd=50.0,
-        net_profit_jpy=2000, margin_rate=1.0,
+        item_code="SEL01",
+        source_site="amazon",
+        title_jp="選択出品1",
+        title_en=None,
+        cost_jpy=2000,
+        ebay_price_usd=50.0,
+        net_profit_jpy=2000,
+        margin_rate=1.0,
     )
     cid2 = await ctx.db.add_candidate(
-        item_code="SEL02", source_site="amazon", title_jp="選択出品2",
-        title_en=None, cost_jpy=3000, ebay_price_usd=70.0,
-        net_profit_jpy=3000, margin_rate=1.0,
+        item_code="SEL02",
+        source_site="amazon",
+        title_jp="選択出品2",
+        title_en=None,
+        cost_jpy=3000,
+        ebay_price_usd=70.0,
+        net_profit_jpy=3000,
+        margin_rate=1.0,
     )
     await ctx.db.update_candidate_status(cid1, "approved")
     await ctx.db.update_candidate_status(cid2, "approved")
 
     # Publish only cid1
-    resp = await client.post("/api/listing/run", json={
-        "candidate_ids": [cid1],
-    })
+    resp = await client.post(
+        "/api/listing/run",
+        json={
+            "candidate_ids": [cid1],
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["listed_count"] == 1
@@ -432,10 +491,13 @@ async def test_orders_status_update(client, ctx):
         destination_country="US",
     )
 
-    resp = await client.put(f"/api/orders/{oid}/status", json={
-        "status": "purchased",
-        "actual_cost_jpy": 3000,
-    })
+    resp = await client.put(
+        f"/api/orders/{oid}/status",
+        json={
+            "status": "purchased",
+            "actual_cost_jpy": 3000,
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "purchased"
@@ -451,11 +513,14 @@ async def test_orders_status_update_shipped(client, ctx):
     )
     await ctx.db.update_order(oid, status="purchased", actual_cost_jpy=2000)
 
-    resp = await client.put(f"/api/orders/{oid}/status", json={
-        "status": "shipped",
-        "tracking_number": "JP123456789",
-        "shipping_cost_jpy": 1500,
-    })
+    resp = await client.put(
+        f"/api/orders/{oid}/status",
+        json={
+            "status": "shipped",
+            "tracking_number": "JP123456789",
+            "shipping_cost_jpy": 1500,
+        },
+    )
     assert resp.status_code == 200
     assert resp.json()["status"] == "shipped"
 
@@ -467,17 +532,23 @@ async def test_orders_status_update_invalid(client, ctx):
         buyer_username="buyer3",
         sale_price_usd=40.0,
     )
-    resp = await client.put(f"/api/orders/{oid}/status", json={
-        "status": "nonexistent",
-    })
+    resp = await client.put(
+        f"/api/orders/{oid}/status",
+        json={
+            "status": "nonexistent",
+        },
+    )
     assert resp.status_code == 400
 
 
 async def test_orders_status_update_not_found(client):
     """PUT /api/orders/{id}/status returns 404 for missing order."""
-    resp = await client.put("/api/orders/99999/status", json={
-        "status": "purchased",
-    })
+    resp = await client.put(
+        "/api/orders/99999/status",
+        json={
+            "status": "purchased",
+        },
+    )
     assert resp.status_code == 404
 
 
@@ -519,13 +590,19 @@ async def test_messages_filter_by_buyer(client, ctx):
 async def test_messages_filter_by_category(client, ctx):
     """GET /api/messages?category=xxx filters by category."""
     await ctx.db.add_message(
-        buyer_username="cat1", body="Where is my tracking?", category="shipping_tracking",
+        buyer_username="cat1",
+        body="Where is my tracking?",
+        category="shipping_tracking",
     )
     await ctx.db.add_message(
-        buyer_username="cat2", body="I want to return", category="return_cancel",
+        buyer_username="cat2",
+        body="I want to return",
+        category="return_cancel",
     )
     await ctx.db.add_message(
-        buyer_username="cat3", body="Random question", category="other",
+        buyer_username="cat3",
+        body="Random question",
+        category="other",
     )
 
     resp = await client.get("/api/messages?category=shipping_tracking")
@@ -546,13 +623,19 @@ async def test_messages_filter_by_category(client, ctx):
 async def test_messages_filter_by_buyer_and_category(client, ctx):
     """GET /api/messages with both buyer and category filters."""
     await ctx.db.add_message(
-        buyer_username="combo_buyer", body="Tracking?", category="shipping_tracking",
+        buyer_username="combo_buyer",
+        body="Tracking?",
+        category="shipping_tracking",
     )
     await ctx.db.add_message(
-        buyer_username="combo_buyer", body="Return?", category="return_cancel",
+        buyer_username="combo_buyer",
+        body="Return?",
+        category="return_cancel",
     )
     await ctx.db.add_message(
-        buyer_username="other_buyer", body="Tracking?", category="shipping_tracking",
+        buyer_username="other_buyer",
+        body="Tracking?",
+        category="shipping_tracking",
     )
 
     resp = await client.get("/api/messages?buyer=combo_buyer&category=shipping_tracking")
@@ -569,9 +652,12 @@ async def test_messages_reply(client, ctx):
         body="Is this authentic?",
         category="condition",
     )
-    resp = await client.post(f"/api/messages/{msg_id}/reply", json={
-        "body": "Yes, it is 100% authentic from Japan.",
-    })
+    resp = await client.post(
+        f"/api/messages/{msg_id}/reply",
+        json={
+            "body": "Yes, it is 100% authentic from Japan.",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["direction"] == "outbound"
@@ -580,9 +666,12 @@ async def test_messages_reply(client, ctx):
 
 async def test_messages_reply_not_found(client):
     """POST /api/messages/{id}/reply returns 404 for missing message."""
-    resp = await client.post("/api/messages/99999/reply", json={
-        "body": "test",
-    })
+    resp = await client.post(
+        "/api/messages/99999/reply",
+        json={
+            "body": "test",
+        },
+    )
     assert resp.status_code == 404
 
 
@@ -592,9 +681,14 @@ async def test_messages_reply_not_found(client):
 async def test_export_candidates_csv(client, ctx):
     """GET /api/export/candidates?format=csv returns CSV."""
     await ctx.db.add_candidate(
-        item_code="EXP01", source_site="amazon", title_jp="エクスポートテスト",
-        title_en="Export Test", cost_jpy=1000, ebay_price_usd=30.0,
-        net_profit_jpy=1000, margin_rate=1.0,
+        item_code="EXP01",
+        source_site="amazon",
+        title_jp="エクスポートテスト",
+        title_en="Export Test",
+        cost_jpy=1000,
+        ebay_price_usd=30.0,
+        net_profit_jpy=1000,
+        margin_rate=1.0,
     )
     resp = await client.get("/api/export/candidates?format=csv")
     assert resp.status_code == 200
@@ -605,9 +699,14 @@ async def test_export_candidates_csv(client, ctx):
 async def test_export_candidates_json(client, ctx):
     """GET /api/export/candidates?format=json returns JSON."""
     await ctx.db.add_candidate(
-        item_code="EXP02", source_site="rakuten", title_jp="JSON出力テスト",
-        title_en=None, cost_jpy=2000, ebay_price_usd=50.0,
-        net_profit_jpy=2000, margin_rate=1.0,
+        item_code="EXP02",
+        source_site="rakuten",
+        title_jp="JSON出力テスト",
+        title_en=None,
+        cost_jpy=2000,
+        ebay_price_usd=50.0,
+        net_profit_jpy=2000,
+        margin_rate=1.0,
     )
     resp = await client.get("/api/export/candidates?format=json")
     assert resp.status_code == 200

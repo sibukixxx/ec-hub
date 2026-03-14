@@ -50,9 +50,14 @@ async def test_get_candidates_empty(ctx):
 
 async def test_get_candidates_with_data(ctx):
     await ctx.db.add_candidate(
-        item_code="RS-001", source_site="amazon", title_jp="テスト",
-        title_en=None, cost_jpy=1000, ebay_price_usd=30.0,
-        net_profit_jpy=500, margin_rate=0.5,
+        item_code="RS-001",
+        source_site="amazon",
+        title_jp="テスト",
+        title_en=None,
+        cost_jpy=1000,
+        ebay_price_usd=30.0,
+        net_profit_jpy=500,
+        margin_rate=0.5,
     )
     svc = ResearchService(ctx)
     result = await svc.get_candidates()
@@ -62,9 +67,14 @@ async def test_get_candidates_with_data(ctx):
 
 async def test_get_candidates_by_status(ctx):
     cid = await ctx.db.add_candidate(
-        item_code="RS-002", source_site="amazon", title_jp="テスト2",
-        title_en=None, cost_jpy=2000, ebay_price_usd=60.0,
-        net_profit_jpy=1000, margin_rate=0.5,
+        item_code="RS-002",
+        source_site="amazon",
+        title_jp="テスト2",
+        title_en=None,
+        cost_jpy=2000,
+        ebay_price_usd=60.0,
+        net_profit_jpy=1000,
+        margin_rate=0.5,
     )
     await ctx.db.update_candidate_status(cid, "approved")
 
@@ -77,9 +87,14 @@ async def test_get_candidates_by_status(ctx):
 
 async def test_get_candidate_by_id(ctx):
     cid = await ctx.db.add_candidate(
-        item_code="RS-003", source_site="amazon", title_jp="テスト3",
-        title_en=None, cost_jpy=3000, ebay_price_usd=90.0,
-        net_profit_jpy=1500, margin_rate=0.5,
+        item_code="RS-003",
+        source_site="amazon",
+        title_jp="テスト3",
+        title_en=None,
+        cost_jpy=3000,
+        ebay_price_usd=90.0,
+        net_profit_jpy=1500,
+        margin_rate=0.5,
     )
     svc = ResearchService(ctx)
     result = await svc.get_candidate(cid)
@@ -95,9 +110,14 @@ async def test_get_candidate_by_id_not_found(ctx):
 
 async def test_update_candidate_status(ctx):
     cid = await ctx.db.add_candidate(
-        item_code="RS-004", source_site="rakuten", title_jp="テスト4",
-        title_en=None, cost_jpy=4000, ebay_price_usd=120.0,
-        net_profit_jpy=2000, margin_rate=0.5,
+        item_code="RS-004",
+        source_site="rakuten",
+        title_jp="テスト4",
+        title_en=None,
+        cost_jpy=4000,
+        ebay_price_usd=120.0,
+        net_profit_jpy=2000,
+        margin_rate=0.5,
     )
     svc = ResearchService(ctx)
     await svc.update_candidate_status(cid, "approved")

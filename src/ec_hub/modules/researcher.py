@@ -21,6 +21,8 @@ from ec_hub.db import Database
 from ec_hub.modules.matcher import (
     DEFAULT_MATCH_THRESHOLD,
     calc_match_score,
+    extract_brand,
+    extract_model_number,
     is_good_match,
     normalize_match_threshold,
 )
@@ -68,9 +70,7 @@ class Researcher:
 
     @property
     def match_threshold(self) -> int:
-        return normalize_match_threshold(
-            self._research_config.get("match_threshold", DEFAULT_MATCH_THRESHOLD)
-        )
+        return normalize_match_threshold(self._research_config.get("match_threshold", DEFAULT_MATCH_THRESHOLD))
 
     def _create_source_searchers(self) -> list[SourceSearcher]:
         """設定に基づいて仕入れ検索クライアントを生成する."""
@@ -78,24 +78,30 @@ class Researcher:
 
         amazon_config = self._settings.get("amazon", {})
         if amazon_config.get("access_key"):
-            searchers.append(AmazonClient(
-                access_key=amazon_config["access_key"],
-                secret_key=amazon_config.get("secret_key", ""),
-                partner_tag=amazon_config.get("partner_tag", ""),
-                country=amazon_config.get("country", "www.amazon.co.jp"),
-            ))
+            searchers.append(
+                AmazonClient(
+                    access_key=amazon_config["access_key"],
+                    secret_key=amazon_config.get("secret_key", ""),
+                    partner_tag=amazon_config.get("partner_tag", ""),
+                    country=amazon_config.get("country", "www.amazon.co.jp"),
+                )
+            )
 
         rakuten_config = self._settings.get("rakuten", {})
         if rakuten_config.get("app_id"):
-            searchers.append(RakutenClient(
-                app_id=rakuten_config["app_id"],
-            ))
+            searchers.append(
+                RakutenClient(
+                    app_id=rakuten_config["app_id"],
+                )
+            )
 
         yahoo_config = self._settings.get("yahoo_shopping", {})
         if yahoo_config.get("app_id"):
-            searchers.append(YahooShoppingClient(
-                app_id=yahoo_config["app_id"],
-            ))
+            searchers.append(
+                YahooShoppingClient(
+                    app_id=yahoo_config["app_id"],
+                )
+            )
 
         # Muji (no API key required, scraping-based)
         muji_config = self._settings.get("muji", {})
@@ -115,14 +121,16 @@ class Researcher:
                         continue
                     if product.price is None or product.price <= 0:
                         continue
-                    candidates.append({
-                        "item_id": product.item_id,
-                        "title": product.title,
-                        "price_usd": product.price,
-                        "category": product.category,
-                        "image_url": product.image_url,
-                        "url": product.url,
-                    })
+                    candidates.append(
+                        {
+                            "item_id": product.item_id,
+                            "title": product.title,
+                            "price_usd": product.price,
+                            "category": product.category,
+                            "image_url": product.image_url,
+                            "url": product.url,
+                        }
+                    )
         logger.info("eBay検索 '%s': %d 件取得", query, len(candidates))
         return candidates
 
@@ -179,6 +187,8 @@ class Researcher:
                     fx_rate=fx_rate_val,
                     ebay_category=ebay_category,
                     source_category=product.category,
+                    source_review_count=product.review_count,
+                    source_rating=product.rating,
                 )
                 if is_good_match(match_result, threshold) and match_result["score"] > best_score:
                     best_score = match_result["score"]
@@ -188,7 +198,9 @@ class Researcher:
             if best_product:
                 logger.debug(
                     "マッチ成功: %s → %s (score=%d)",
-                    ebay_title[:30], best_product.title[:30], best_score,
+                    ebay_title[:30],
+                    best_product.title[:30],
+                    best_score,
                 )
                 return best_product, best_match
             else:
@@ -238,7 +250,8 @@ class Researcher:
         if breakdown.jpy_revenue > 0 and breakdown.shipping_cost / breakdown.jpy_revenue > max_shipping_ratio:
             logger.debug(
                 "送料比率超過で除外: %s (%.1f%%)",
-                title_jp, breakdown.shipping_cost / breakdown.jpy_revenue * 100,
+                title_jp,
+                breakdown.shipping_cost / breakdown.jpy_revenue * 100,
             )
             return None
 
@@ -271,16 +284,23 @@ class Researcher:
         prediction_info = ""
         if self._price_predictor.is_trained:
             pred = self._price_predictor.predict(
-                cost_jpy=cost_jpy, weight_g=weight_g,
-                source_site=source_site, category=category, fx_rate=fx_rate,
+                cost_jpy=cost_jpy,
+                weight_g=weight_g,
+                source_site=source_site,
+                category=category,
+                fx_rate=fx_rate,
             )
             prediction_info = f" | ML予測: ${pred.predicted_price_usd:.0f} (信頼度{pred.confidence:.0%})"
 
         logger.info(
             "候補登録: %s | 仕入¥%d → eBay$%.0f | 利益 ¥%d (%.0f%%) [%s]%s",
-            title_jp[:30], cost_jpy, ebay_price_usd,
-            breakdown.net_profit, breakdown.margin_rate * 100,
-            source_site, prediction_info,
+            title_jp[:30],
+            cost_jpy,
+            ebay_price_usd,
+            breakdown.net_profit,
+            breakdown.margin_rate * 100,
+            source_site,
+            prediction_info,
         )
         return candidate_id
 
@@ -395,7 +415,9 @@ class Researcher:
                     if total_registered >= self.max_candidates_per_run:
                         break
                     candidate_id = await self.research_single(
-                        ebay_product, searchers, research_run_id=run_id,
+                        ebay_product,
+                        searchers,
+                        research_run_id=run_id,
                     )
                     if candidate_id is not None:
                         total_registered += 1
@@ -417,17 +439,74 @@ class Researcher:
 def simplify_search_query(title: str) -> str:
     """eBayの商品タイトルから検索クエリを生成する.
 
-    長いタイトルから不要な修飾語を除去し、
+    ブランド名と型番を優先的に残し、ノイズ語を除去する。
     日本ECサイトでの検索精度を上げる。
     """
     noise_words = {
-        "new", "used", "rare", "vintage", "authentic", "genuine",
-        "brand", "sealed", "nib", "nip", "mint", "excellent",
-        "free", "shipping", "fast", "ship", "from", "japan",
-        "us", "seller", "lot", "set", "bundle",
+        "new",
+        "used",
+        "rare",
+        "vintage",
+        "authentic",
+        "genuine",
+        "brand",
+        "sealed",
+        "nib",
+        "nip",
+        "mint",
+        "excellent",
+        "free",
+        "shipping",
+        "fast",
+        "ship",
+        "from",
+        "japan",
+        "us",
+        "seller",
+        "lot",
+        "set",
+        "bundle",
+        "special",
+        "limited",
+        "collector",
+        "premium",
+        "deluxe",
+        "ultimate",
+        "exclusive",
+        "official",
+        "original",
+        "super",
     }
+
+    # Extract brand and model number for priority placement
+    brand = extract_brand(title)
+    model = extract_model_number(title)
+
     words = title.split()
     filtered = [w for w in words if w.lower().strip("!,.()-[]") not in noise_words]
 
-    # 最大6語に制限
-    return " ".join(filtered[:6])
+    # Build priority words (brand + model first)
+    priority: list[str] = []
+    if brand:
+        priority.append(brand.title() if brand.islower() else brand)
+    if model:
+        # Find the original-case version from the title
+        model_lower = model.lower()
+        original_model = next(
+            (w for w in words if model_lower in w.lower()),
+            model,
+        )
+        priority.append(original_model)
+
+    # Remove priority words from filtered to avoid duplication
+    remaining = []
+    priority_lower = {p.lower() for p in priority}
+    for w in filtered:
+        if w.lower() not in priority_lower and not any(w.lower() in p for p in priority_lower):
+            remaining.append(w)
+
+    # Combine: priority words first, then remaining, max 6 total
+    max_words = 6
+    result_words = priority + remaining[: max_words - len(priority)]
+
+    return " ".join(result_words)

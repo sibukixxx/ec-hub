@@ -15,15 +15,18 @@ def client():
 
 # --- site_name ---
 
+
 def test_site_name(client):
     assert client.site_name == "muji"
 
 
 # --- _extract_item_code ---
 
+
 def test_extract_item_code_from_data_attr():
     """data-product-id属性から商品コードを抽出."""
     from bs4 import BeautifulSoup
+
     html = '<div data-product-id="4550344294956"><a href="/detail/123">test</a></div>'
     tag = BeautifulSoup(html, "lxml").select_one("div")
     assert MujiClient._extract_item_code(tag) == "4550344294956"
@@ -32,6 +35,7 @@ def test_extract_item_code_from_data_attr():
 def test_extract_item_code_from_link():
     """リンクURLから商品コードを抽出."""
     from bs4 import BeautifulSoup
+
     html = '<div><a href="/jp/ja/store/cmdty/detail/4550344294956">test</a></div>'
     tag = BeautifulSoup(html, "lxml").select_one("div")
     assert MujiClient._extract_item_code(tag) == "4550344294956"
@@ -40,6 +44,7 @@ def test_extract_item_code_from_link():
 def test_extract_item_code_jan_code():
     """JANコードパターンから商品コードを抽出."""
     from bs4 import BeautifulSoup
+
     html = '<div><a href="/store/4550344294956">test</a></div>'
     tag = BeautifulSoup(html, "lxml").select_one("div")
     assert MujiClient._extract_item_code(tag) == "4550344294956"
@@ -48,6 +53,7 @@ def test_extract_item_code_jan_code():
 def test_extract_item_code_not_found():
     """商品コードが見つからない場合."""
     from bs4 import BeautifulSoup
+
     html = '<div><a href="/store/abc">test</a></div>'
     tag = BeautifulSoup(html, "lxml").select_one("div")
     assert MujiClient._extract_item_code(tag) is None
@@ -55,9 +61,11 @@ def test_extract_item_code_not_found():
 
 # --- _parse_price ---
 
+
 def test_parse_price_yen_sign():
     """¥マーク付き価格のパース."""
     from bs4 import BeautifulSoup
+
     html = '<div><span class="price">¥1,990</span></div>'
     tag = BeautifulSoup(html, "lxml").select_one("div")
     assert MujiClient._parse_price(tag) == 1990
@@ -66,6 +74,7 @@ def test_parse_price_yen_sign():
 def test_parse_price_en_sign():
     """￥マーク付き価格のパース."""
     from bs4 import BeautifulSoup
+
     html = '<div><span class="price">￥3,490</span></div>'
     tag = BeautifulSoup(html, "lxml").select_one("div")
     assert MujiClient._parse_price(tag) == 3490
@@ -74,6 +83,7 @@ def test_parse_price_en_sign():
 def test_parse_price_with_tax():
     """税込み表記の価格."""
     from bs4 import BeautifulSoup
+
     html = '<div><span class="price">990円</span></div>'
     tag = BeautifulSoup(html, "lxml").select_one("div")
     assert MujiClient._parse_price(tag) == 990
@@ -82,6 +92,7 @@ def test_parse_price_with_tax():
 def test_parse_price_data_attr():
     """data-price属性の価格."""
     from bs4 import BeautifulSoup
+
     html = '<div><span class="price" data-price="2990">dummy</span></div>'
     tag = BeautifulSoup(html, "lxml").select_one("div")
     assert MujiClient._parse_price(tag) == 2990
@@ -90,6 +101,7 @@ def test_parse_price_data_attr():
 def test_parse_price_not_found():
     """価格が見つからない場合."""
     from bs4 import BeautifulSoup
+
     html = '<div><span class="description">No price here</span></div>'
     tag = BeautifulSoup(html, "lxml").select_one("div")
     assert MujiClient._parse_price(tag) is None
@@ -97,9 +109,11 @@ def test_parse_price_not_found():
 
 # --- _parse_image ---
 
+
 def test_parse_image():
     """画像URLの抽出."""
     from bs4 import BeautifulSoup
+
     html = '<div><img src="https://www.muji.com/img/product.jpg" /></div>'
     tag = BeautifulSoup(html, "lxml").select_one("div")
     assert MujiClient._parse_image(tag) == "https://www.muji.com/img/product.jpg"
@@ -108,6 +122,7 @@ def test_parse_image():
 def test_parse_image_data_src():
     """data-src属性からの画像URL."""
     from bs4 import BeautifulSoup
+
     html = '<div><img data-src="https://www.muji.com/img/lazy.jpg" /></div>'
     tag = BeautifulSoup(html, "lxml").select_one("div")
     assert MujiClient._parse_image(tag) == "https://www.muji.com/img/lazy.jpg"
@@ -116,12 +131,14 @@ def test_parse_image_data_src():
 def test_parse_image_not_found():
     """画像が見つからない場合."""
     from bs4 import BeautifulSoup
-    html = '<div><span>No image</span></div>'
+
+    html = "<div><span>No image</span></div>"
     tag = BeautifulSoup(html, "lxml").select_one("div")
     assert MujiClient._parse_image(tag) is None
 
 
 # --- _parse_search_item ---
+
 
 def _make_search_item_html(
     title="無印良品 化粧水",
@@ -144,6 +161,7 @@ def _make_search_item_html(
 def test_parse_search_item_basic(client):
     """基本的な検索結果アイテムのパース."""
     from bs4 import BeautifulSoup
+
     html = _make_search_item_html()
     tag = BeautifulSoup(html, "lxml").select_one("li")
     product = client._parse_search_item(tag)
@@ -157,6 +175,7 @@ def test_parse_search_item_basic(client):
 def test_parse_search_item_no_title(client):
     """タイトルがない場合."""
     from bs4 import BeautifulSoup
+
     html = '<li class="product-tile" data-product-id="123"><span class="price">¥990</span></li>'
     tag = BeautifulSoup(html, "lxml").select_one("li")
     product = client._parse_search_item(tag)
@@ -166,6 +185,7 @@ def test_parse_search_item_no_title(client):
 def test_parse_search_item_no_price(client):
     """価格がない場合."""
     from bs4 import BeautifulSoup
+
     html = '<li class="product-tile" data-product-id="123"><h3>Test</h3></li>'
     tag = BeautifulSoup(html, "lxml").select_one("li")
     product = client._parse_search_item(tag)
@@ -173,6 +193,7 @@ def test_parse_search_item_no_price(client):
 
 
 # --- _parse_search_results ---
+
 
 def test_parse_search_results(client):
     """検索結果リストのパース."""
@@ -199,6 +220,7 @@ def test_parse_search_results_empty(client):
 
 # --- _parse_item_page ---
 
+
 def test_parse_item_page(client):
     """商品詳細ページのパース."""
     html = """
@@ -211,7 +233,9 @@ def test_parse_item_page(client):
     </nav>
     </body></html>
     """
-    product = client._parse_item_page(html, "4550344294956", "https://www.muji.com/jp/ja/store/cmdty/detail/4550344294956")
+    product = client._parse_item_page(
+        html, "4550344294956", "https://www.muji.com/jp/ja/store/cmdty/detail/4550344294956"
+    )
     assert product is not None
     assert product.title == "無印良品 敏感肌用 化粧水 高保湿タイプ"
     assert product.price_jpy == 1990
@@ -250,6 +274,7 @@ def test_parse_item_page_no_price(client):
 
 # --- search (integration with mock) ---
 
+
 async def test_search_success(client):
     """検索の成功ケース."""
     search_html = f"""
@@ -282,6 +307,7 @@ async def test_search_failure(client):
 
 # --- get_item (integration with mock) ---
 
+
 async def test_get_item_success(client):
     """商品取得の成功ケース."""
     item_html = """
@@ -304,6 +330,7 @@ async def test_get_item_failure(client):
 
 
 # --- close ---
+
 
 async def test_close(client):
     """close()が正常に実行される."""

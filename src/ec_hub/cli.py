@@ -169,7 +169,10 @@ async def _calc(cost: int, price: float, weight: int, dest: str) -> None:
     async with AppContext.create(validate_services=True) as ctx:
         uc = ProfitCalcUseCase(ctx)
         breakdown = await uc.calculate(
-            cost_jpy=cost, ebay_price_usd=price, weight_g=weight, destination=dest,
+            cost_jpy=cost,
+            ebay_price_usd=price,
+            weight_g=weight,
+            destination=dest,
         )
 
     table = Table(title="利益シミュレーション", show_lines=True)
@@ -304,9 +307,11 @@ async def _candidates(status: str | None, limit: int) -> None:
 
 
 @main.command()
-@click.option("--status", type=click.Choice([
-    "awaiting_purchase", "purchased", "shipped", "delivered", "completed"
-]), help="ステータスフィルタ")
+@click.option(
+    "--status",
+    type=click.Choice(["awaiting_purchase", "purchased", "shipped", "delivered", "completed"]),
+    help="ステータスフィルタ",
+)
 @click.option("--limit", default=20, help="表示件数")
 def orders(status: str | None, limit: int) -> None:
     """注文一覧を表示する."""

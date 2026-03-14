@@ -102,9 +102,7 @@ class AmazonClient(SourceSearcher):
         )
         signed_headers = "content-encoding;content-type;host;x-amz-date;x-amz-target"
 
-        canonical_request = (
-            f"POST\n{path}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
-        )
+        canonical_request = f"POST\n{path}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
 
         # String to sign
         credential_scope = f"{date_stamp}/{self._region}/{SERVICE}/aws4_request"

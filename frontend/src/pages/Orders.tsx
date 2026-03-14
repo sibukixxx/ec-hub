@@ -60,13 +60,7 @@ export function Orders(_props: RoutableProps) {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: ({
-      order,
-      status,
-    }: {
-      order: Order;
-      status: string;
-    }) => {
+    mutationFn: ({ order, status }: { order: Order; status: string }) => {
       const draft = drafts[order.id] || {};
       const payload: Record<string, unknown> = { status };
 

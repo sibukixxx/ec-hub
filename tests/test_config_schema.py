@@ -78,6 +78,7 @@ def fee_rules_yaml(tmp_path: Path) -> Path:
 # Settings schema tests
 # ---------------------------------------------------------------------------
 
+
 class TestLoadSettingsReturnsTypedModel:
     """load_settings should return a typed Settings model, not a raw dict."""
 
@@ -207,6 +208,7 @@ class TestEnvironmentVariableOverride:
 # Fee rules schema tests
 # ---------------------------------------------------------------------------
 
+
 class TestLoadFeeRulesReturnsTypedModel:
     """load_fee_rules should return a typed FeeRules model."""
 
@@ -268,6 +270,7 @@ class TestFeeRulesValidation:
 # settings.local.yaml overlay tests
 # ---------------------------------------------------------------------------
 
+
 class TestSettingsLocalOverlay:
     """settings.local.yaml should override settings.yaml values."""
 
@@ -324,6 +327,7 @@ class TestSettingsLocalOverlay:
 # Path resolution tests
 # ---------------------------------------------------------------------------
 
+
 class TestPathResolution:
     """Settings.resolve_paths should resolve relative paths against project root."""
 
@@ -376,6 +380,7 @@ class TestPathResolution:
 # ---------------------------------------------------------------------------
 # Service availability validation tests
 # ---------------------------------------------------------------------------
+
 
 class TestServiceAvailability:
     """Settings.validate_required_services should classify services correctly."""

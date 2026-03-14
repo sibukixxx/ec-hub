@@ -26,14 +26,24 @@ class TestDashboardUseCase:
     async def test_returns_summary_with_counts(self, ctx):
         # Add test data
         await ctx.candidates.add(
-            item_code="DASH01", source_site="amazon", title_jp="ダッシュ1",
-            title_en=None, cost_jpy=1000, ebay_price_usd=30.0,
-            net_profit_jpy=1000, margin_rate=1.0,
+            item_code="DASH01",
+            source_site="amazon",
+            title_jp="ダッシュ1",
+            title_en=None,
+            cost_jpy=1000,
+            ebay_price_usd=30.0,
+            net_profit_jpy=1000,
+            margin_rate=1.0,
         )
         cid = await ctx.candidates.add(
-            item_code="DASH02", source_site="amazon", title_jp="ダッシュ2",
-            title_en=None, cost_jpy=2000, ebay_price_usd=60.0,
-            net_profit_jpy=2000, margin_rate=1.0,
+            item_code="DASH02",
+            source_site="amazon",
+            title_jp="ダッシュ2",
+            title_en=None,
+            cost_jpy=2000,
+            ebay_price_usd=60.0,
+            net_profit_jpy=2000,
+            margin_rate=1.0,
         )
         await ctx.candidates.update_status(cid, "approved")
 
@@ -60,7 +70,8 @@ class TestDashboardUseCase:
 class TestOrderUseCase:
     async def test_get_order_returns_order(self, ctx):
         oid = await ctx.orders.add(
-            ebay_order_id="UC-ORD-001", sale_price_usd=50.0,
+            ebay_order_id="UC-ORD-001",
+            sale_price_usd=50.0,
         )
         uc = OrderUseCase(ctx)
         result = await uc.get_order(oid)
@@ -110,8 +121,14 @@ class TestMessageUseCase:
 
     async def test_reply_preserves_traceability_links(self, ctx):
         cid = await ctx.candidates.add(
-            item_code="MSG-UC-01", source_site="amazon", title_jp="msg", title_en="msg",
-            cost_jpy=1000, ebay_price_usd=30.0, net_profit_jpy=1000, margin_rate=1.0,
+            item_code="MSG-UC-01",
+            source_site="amazon",
+            title_jp="msg",
+            title_en="msg",
+            cost_jpy=1000,
+            ebay_price_usd=30.0,
+            net_profit_jpy=1000,
+            margin_rate=1.0,
         )
         lid = await ctx.db.add_listing(
             candidate_id=cid,
@@ -150,9 +167,14 @@ class TestMessageUseCase:
 class TestExportUseCase:
     async def test_export_candidates_csv(self, ctx):
         await ctx.candidates.add(
-            item_code="EXP01", source_site="amazon", title_jp="エクスポート",
-            title_en=None, cost_jpy=1000, ebay_price_usd=30.0,
-            net_profit_jpy=1000, margin_rate=1.0,
+            item_code="EXP01",
+            source_site="amazon",
+            title_jp="エクスポート",
+            title_en=None,
+            cost_jpy=1000,
+            ebay_price_usd=30.0,
+            net_profit_jpy=1000,
+            margin_rate=1.0,
         )
         uc = ExportUseCase(ctx)
         content, media_type = await uc.export_data("candidates", "csv")

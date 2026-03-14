@@ -52,20 +52,38 @@ TEMPLATES: dict[MessageCategory, str] = {
 # キーワードベースの分類パターン (フォールバック用)
 CATEGORY_PATTERNS: dict[MessageCategory, list[str]] = {
     MessageCategory.SHIPPING_TRACKING: [
-        r"when.*ship", r"tracking", r"shipped\?", r"delivery",
-        r"how long", r"arrive", r"dispatch",
+        r"when.*ship",
+        r"tracking",
+        r"shipped\?",
+        r"delivery",
+        r"how long",
+        r"arrive",
+        r"dispatch",
     ],
     MessageCategory.CONDITION: [
-        r"condition", r"\bnew\b", r"\bused\b", r"authentic",
-        r"original", r"quality", r"defect",
+        r"condition",
+        r"\bnew\b",
+        r"\bused\b",
+        r"authentic",
+        r"original",
+        r"quality",
+        r"defect",
     ],
     MessageCategory.RETURN_CANCEL: [
-        r"cancel", r"return", r"refund", r"money back",
-        r"wrong item", r"damaged", r"broken",
+        r"cancel",
+        r"return",
+        r"refund",
+        r"money back",
+        r"wrong item",
+        r"damaged",
+        r"broken",
     ],
     MessageCategory.ADDRESS_CHANGE: [
-        r"change.*address", r"update.*address", r"wrong address",
-        r"new address", r"different address",
+        r"change.*address",
+        r"update.*address",
+        r"wrong address",
+        r"new address",
+        r"different address",
     ],
 }
 

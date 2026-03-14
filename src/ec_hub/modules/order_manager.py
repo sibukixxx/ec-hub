@@ -55,11 +55,7 @@ class OrderManager:
         return [item for item in line_items if isinstance(item, dict)]
 
     async def _resolve_listing_from_line_item(self, line_item: dict) -> dict | None:
-        sku = (
-            line_item.get("sku")
-            or line_item.get("lineItemSku")
-            or line_item.get("inventoryReferenceId")
-        )
+        sku = line_item.get("sku") or line_item.get("lineItemSku") or line_item.get("inventoryReferenceId")
         if sku:
             listing = await self._db.get_listing_by_sku(str(sku))
             if listing:
@@ -171,9 +167,7 @@ class OrderManager:
 
         return new_orders
 
-    async def resolve_listing_from_line_items(
-        self, line_items: list[dict]
-    ) -> dict | None:
+    async def resolve_listing_from_line_items(self, line_items: list[dict]) -> dict | None:
         """eBay注文のline itemsからSKU→listing→candidateを逆引きする."""
         for item in line_items:
             sku = item.get("sku")
@@ -261,7 +255,8 @@ class OrderManager:
                     )
                     logger.info(
                         "eBayに追跡番号登録: order=%s, tracking=%s",
-                        target["ebay_order_id"], tracking_number,
+                        target["ebay_order_id"],
+                        tracking_number,
                     )
                 except Exception as e:
                     logger.error("eBay追跡番号登録失敗: %s", e)
@@ -300,8 +295,7 @@ class OrderManager:
 
         # 実際の送料で再計算
         actual_net_profit = breakdown.jpy_revenue - (
-            actual_cost + breakdown.ebay_fee + breakdown.payoneer_fee
-            + actual_shipping + packing + breakdown.fx_buffer
+            actual_cost + breakdown.ebay_fee + breakdown.payoneer_fee + actual_shipping + packing + breakdown.fx_buffer
         )
 
         await self._db.update_order(

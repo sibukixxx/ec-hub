@@ -54,10 +54,13 @@ export const api = {
     }),
 
   bulkUpdateCandidateStatus: (ids: number[], status: string) =>
-    request<{ updated_count: number; status: string }>('/candidates/bulk-status', {
-      method: 'POST',
-      body: JSON.stringify({ ids, status }),
-    }),
+    request<{ updated_count: number; status: string }>(
+      '/candidates/bulk-status',
+      {
+        method: 'POST',
+        body: JSON.stringify({ ids, status }),
+      }
+    ),
 
   getOrders: (status?: string | null, limit = 50) =>
     request<Order[]>(withParams('/orders', { status, limit })),
@@ -103,7 +106,9 @@ export const api = {
   runListing: (candidateIds?: number[]) =>
     request<{ listed_count: number }>('/listing/run', {
       method: 'POST',
-      body: candidateIds ? JSON.stringify({ candidate_ids: candidateIds }) : undefined,
+      body: candidateIds
+        ? JSON.stringify({ candidate_ids: candidateIds })
+        : undefined,
     }),
 
   getListingPreview: (candidateId: number) =>

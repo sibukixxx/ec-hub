@@ -20,9 +20,7 @@ class ListingService:
         self._ctx = ctx
         self._lister = Lister(ctx.db, ctx.settings, ctx.fee_rules)
 
-    def calc_listing_price(
-        self, cost_jpy: int, weight_g: int, fx_rate: float
-    ) -> float:
+    def calc_listing_price(self, cost_jpy: int, weight_g: int, fx_rate: float) -> float:
         """利益率30%を確保する出品価格を計算する."""
         return self._lister.calc_listing_price(cost_jpy, weight_g, fx_rate)
 

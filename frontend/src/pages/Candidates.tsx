@@ -28,7 +28,11 @@ export function Candidates(_props: RoutableProps) {
   const [previewLoading, setPreviewLoading] = useState<number | null>(null);
   const queryClient = useQueryClient();
 
-  const { data: candidates = [], isLoading, error: queryError } = useQuery<Candidate[], Error>({
+  const {
+    data: candidates = [],
+    isLoading,
+    error: queryError,
+  } = useQuery<Candidate[], Error>({
     queryKey: queryKeys.candidates(filter),
     queryFn: () => api.getCandidates(filter, 100),
   });
@@ -50,7 +54,9 @@ export function Candidates(_props: RoutableProps) {
     },
     onSuccess: (data) => {
       setSelected(new Set());
-      setNotice(`${data.updated_count} candidates updated to "${data.status}".`);
+      setNotice(
+        `${data.updated_count} candidates updated to "${data.status}".`
+      );
       void queryClient.invalidateQueries({ queryKey: ['candidates'] });
     },
     onError: (e: Error) => setError(e.message),
@@ -133,7 +139,10 @@ export function Candidates(_props: RoutableProps) {
       <Alerts notice={notice} error={displayError} />
 
       {selectedCount > 0 && (
-        <div class="card" style="margin-bottom:1rem;padding:0.75rem 1rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+        <div
+          class="card"
+          style="margin-bottom:1rem;padding:0.75rem 1rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap"
+        >
           <span style="font-weight:600">{selectedCount} selected</span>
           <button
             class="btn btn-success btn-sm"
@@ -160,10 +169,7 @@ export function Candidates(_props: RoutableProps) {
                 : `Publish ${selectedApprovedCount} to eBay`}
             </button>
           )}
-          <button
-            class="btn btn-sm"
-            onClick={() => setSelected(new Set())}
-          >
+          <button class="btn btn-sm" onClick={() => setSelected(new Set())}>
             Clear
           </button>
         </div>
@@ -188,7 +194,10 @@ export function Candidates(_props: RoutableProps) {
                 <th style="width:40px">
                   <input
                     type="checkbox"
-                    checked={candidates.length > 0 && selected.size === candidates.length}
+                    checked={
+                      candidates.length > 0 &&
+                      selected.size === candidates.length
+                    }
                     onChange={toggleAll}
                   />
                 </th>
@@ -310,7 +319,9 @@ function PreviewPanel({
     <div class="card" style="margin-bottom:1.5rem">
       <div class="section-head">
         <h3>Listing Preview - {preview.title_jp}</h3>
-        <button class="btn btn-sm" onClick={onClose}>Close</button>
+        <button class="btn btn-sm" onClick={onClose}>
+          Close
+        </button>
       </div>
       <div class="preview-grid">
         <div class="preview-row">
@@ -327,7 +338,9 @@ function PreviewPanel({
         </div>
         <div class="preview-row">
           <span class="preview-label">Listing Price</span>
-          <span style="font-weight:700;font-size:1.1rem">{formatUsd(preview.listing_price_usd)}</span>
+          <span style="font-weight:700;font-size:1.1rem">
+            {formatUsd(preview.listing_price_usd)}
+          </span>
         </div>
         <div class="preview-row">
           <span class="preview-label">FX Rate</span>
@@ -351,7 +364,9 @@ function PreviewPanel({
         </div>
         <div class="preview-row">
           <span class="preview-label">Est. Profit</span>
-          <span style={`font-weight:700;font-size:1.1rem;color:${profitColor(profit)}`}>
+          <span
+            style={`font-weight:700;font-size:1.1rem;color:${profitColor(profit)}`}
+          >
             {formatJpy(profit)}
           </span>
         </div>
@@ -364,7 +379,9 @@ function PreviewPanel({
         >
           {publishing ? 'Publishing...' : 'Publish to eBay'}
         </button>
-        <button class="btn btn-secondary" onClick={onClose}>Cancel</button>
+        <button class="btn btn-secondary" onClick={onClose}>
+          Cancel
+        </button>
       </div>
     </div>
   );
