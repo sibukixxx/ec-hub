@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS candidates (
     ebay_sold_count_30d INTEGER DEFAULT 0,
     image_url TEXT,
     source_url TEXT,
+    match_score INTEGER,
+    match_reason TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -135,17 +137,19 @@ class Database:
         ebay_sold_count_30d: int = 0,
         image_url: str | None = None,
         source_url: str | None = None,
+        match_score: int | None = None,
+        match_reason: str | None = None,
     ) -> int:
         cursor = await self.db.execute(
             """INSERT INTO candidates
             (item_code, source_site, title_jp, title_en, cost_jpy, ebay_price_usd,
              net_profit_jpy, margin_rate, weight_g, category, ebay_sold_count_30d,
-             image_url, source_url)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             image_url, source_url, match_score, match_reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 item_code, source_site, title_jp, title_en, cost_jpy, ebay_price_usd,
                 net_profit_jpy, margin_rate, weight_g, category, ebay_sold_count_30d,
-                image_url, source_url,
+                image_url, source_url, match_score, match_reason,
             ),
         )
         await self.db.commit()
