@@ -135,6 +135,7 @@ export function Compare() {
                     <th style="text-align:right">eBay Price</th>
                     <th style="text-align:right">Profit</th>
                     <th style="text-align:right">Margin</th>
+                    <th>Match</th>
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -153,6 +154,13 @@ export function Compare() {
                         </td>
                         <td style={`text-align:right;font-weight:600;color:${marginColor}`}>
                           {(margin * 100).toFixed(1)}%
+                        </td>
+                        <td title={c.match_reason || ''}>
+                          {c.match_score != null ? (
+                            <span style={`color:${c.match_score >= 60 ? 'var(--green)' : c.match_score >= 40 ? 'var(--yellow)' : 'var(--red)'}`}>
+                              {c.match_score}pt
+                            </span>
+                          ) : '-'}
                         </td>
                         <td><span class={`badge badge-${c.status === 'approved' ? 'success' : c.status === 'rejected' ? 'danger' : 'info'}`}>{c.status}</span></td>
                       </tr>
