@@ -1,4 +1,4 @@
-# Issue #002: Messenger の eBay API 連携（受信・送信）
+# Issue #013: Messenger の eBay API 連携（受信・送信）
 
 ## 概要
 Messenger モジュールの分類ロジック（Claude Haiku / キーワード）は実装済みだが、

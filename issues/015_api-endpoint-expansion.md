@@ -1,4 +1,4 @@
-# Issue #003: REST API エンドポイントの拡充
+# Issue #015: REST API エンドポイントの拡充
 
 ## 概要
 現在の API は Dashboard / Candidates / Orders / ProfitCalc のみ。

@@ -1,4 +1,4 @@
-# Issue #018: `uv` 前提の開発環境整備と Docker 化
+# Issue #001: `uv` 前提の開発環境整備と Docker 化
 
 ## 概要
 README と `CLAUDE.md` は `uv` 前提で記述されているが、現状の実行環境では `uv` や `pytest` が未導入でも詰まりやすい。

@@ -1,4 +1,4 @@
-# Issue #011: ユースケース層・Repository 層への再編
+# Issue #005: ユースケース層・Repository 層への再編
 
 ## 概要
 このシステムは CLI / REST API / 今後の Scheduler から同じ業務フローを叩く構成だが、

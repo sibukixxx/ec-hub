@@ -1,4 +1,4 @@
-# Issue #001: APScheduler の初期化・統合
+# Issue #014: APScheduler の初期化・統合
 
 ## 概要
 `apscheduler` が依存関係に含まれているが、実際にはどこでもインスタンス化されていない。
