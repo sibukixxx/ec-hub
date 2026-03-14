@@ -1,8 +1,13 @@
 """データベースのテスト."""
 
+import os
+from pathlib import Path
+
 import pytest
 
 from ec_hub.db import Database
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture
@@ -11,6 +16,40 @@ async def db():
     await database.connect()
     yield database
     await database.close()
+
+
+# --- Path resolution ---
+
+
+class TestDatabasePathResolution:
+    """Database path resolution tests."""
+
+    def test_relative_path_resolves_to_absolute_from_project_root(self):
+        database = Database("db/ebay.db")
+        expected = _PROJECT_ROOT / "db" / "ebay.db"
+        assert database._db_path == expected
+        assert database._db_path.is_absolute()
+
+    def test_absolute_path_is_used_as_is(self, tmp_path):
+        abs_path = tmp_path / "test.db"
+        database = Database(abs_path)
+        assert database._db_path == abs_path
+
+    def test_memory_path_is_preserved(self):
+        database = Database(":memory:")
+        assert database._db_path == Path(":memory:")
+
+    async def test_connect_raises_when_parent_not_writable(self, tmp_path):
+        readonly_dir = tmp_path / "readonly"
+        readonly_dir.mkdir()
+        db_path = readonly_dir / "test.db"
+        os.chmod(readonly_dir, 0o444)
+        try:
+            database = Database(db_path)
+            with pytest.raises(PermissionError, match="write"):
+                await database.connect()
+        finally:
+            os.chmod(readonly_dir, 0o755)
 
 
 async def test_add_and_get_candidate(db):
@@ -216,3 +255,141 @@ async def test_get_total_completed_profit_returns_zero_when_no_completed(db):
     await db.add_order(ebay_order_id="PROF-004", sale_price_usd=50.0)
     total = await db.get_total_completed_profit()
     assert total == 0
+
+
+# --- Listings ---
+
+
+async def _create_candidate(db) -> int:
+    """Helper to create a candidate for listing tests."""
+    return await db.add_candidate(
+        item_code="B09LISTING",
+        source_site="amazon",
+        title_jp="出品テスト商品",
+        title_en="Listing Test Product",
+        cost_jpy=3000,
+        ebay_price_usd=80.0,
+        net_profit_jpy=5000,
+        margin_rate=1.67,
+        weight_g=500,
+    )
+
+
+async def test_add_listing_returns_id(db):
+    cid = await _create_candidate(db)
+    lid = await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-1",
+        title_en="Test Product",
+        listed_price_usd=80.0,
+        listed_fx_rate=150.0,
+    )
+    assert lid is not None
+    assert isinstance(lid, int)
+
+
+async def test_get_listing_by_id_returns_listing(db):
+    cid = await _create_candidate(db)
+    lid = await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-2",
+        title_en="Test Product",
+        listed_price_usd=80.0,
+        listed_fx_rate=150.0,
+        offer_id="OFF-123",
+        listing_id="LIST-456",
+        description_html="<p>Test</p>",
+    )
+    result = await db.get_listing_by_id(lid)
+    assert result is not None
+    assert result["sku"] == "ECHUB-2"
+    assert result["candidate_id"] == cid
+    assert result["offer_id"] == "OFF-123"
+    assert result["listing_id"] == "LIST-456"
+    assert result["listed_price_usd"] == 80.0
+    assert result["status"] == "active"
+
+
+async def test_get_listing_by_id_returns_none_when_not_exists(db):
+    result = await db.get_listing_by_id(99999)
+    assert result is None
+
+
+async def test_get_listing_by_sku_returns_listing(db):
+    cid = await _create_candidate(db)
+    await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-SKU-1",
+        title_en="SKU Test",
+        listed_price_usd=50.0,
+        listed_fx_rate=150.0,
+    )
+    result = await db.get_listing_by_sku("ECHUB-SKU-1")
+    assert result is not None
+    assert result["sku"] == "ECHUB-SKU-1"
+
+
+async def test_get_listing_by_sku_returns_none_when_not_exists(db):
+    result = await db.get_listing_by_sku("NONEXISTENT")
+    assert result is None
+
+
+async def test_update_listing(db):
+    cid = await _create_candidate(db)
+    lid = await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-UPD",
+        title_en="Update Test",
+        listed_price_usd=50.0,
+        listed_fx_rate=150.0,
+    )
+    await db.update_listing(lid, offer_id="OFF-NEW", listing_id="LIST-NEW", status="ended")
+    result = await db.get_listing_by_id(lid)
+    assert result["offer_id"] == "OFF-NEW"
+    assert result["listing_id"] == "LIST-NEW"
+    assert result["status"] == "ended"
+
+
+async def test_add_order_with_listing_id(db):
+    cid = await _create_candidate(db)
+    lid = await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-ORD",
+        title_en="Order Link Test",
+        listed_price_usd=80.0,
+        listed_fx_rate=150.0,
+    )
+    oid = await db.add_order(
+        ebay_order_id="ORD-LID-001",
+        candidate_id=cid,
+        listing_id=lid,
+        sale_price_usd=80.0,
+    )
+    order = await db.get_order_by_id(oid)
+    assert order["listing_id"] == lid
+    assert order["candidate_id"] == cid
+
+
+async def test_add_message_with_listing_id(db):
+    cid = await _create_candidate(db)
+    lid = await db.add_listing(
+        candidate_id=cid,
+        sku="ECHUB-MSG",
+        title_en="Message Link Test",
+        listed_price_usd=80.0,
+        listed_fx_rate=150.0,
+    )
+    oid = await db.add_order(
+        ebay_order_id="ORD-MSG-001",
+        candidate_id=cid,
+        listing_id=lid,
+        sale_price_usd=80.0,
+    )
+    mid = await db.add_message(
+        buyer_username="buyer_trace",
+        body="Test message",
+        order_id=oid,
+        listing_id=lid,
+    )
+    msg = await db.get_message_by_id(mid)
+    assert msg["listing_id"] == lid

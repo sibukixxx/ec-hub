@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -45,10 +46,26 @@ CREATE TABLE IF NOT EXISTS candidates (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS listings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id INTEGER NOT NULL REFERENCES candidates(id),
+    sku TEXT NOT NULL UNIQUE,
+    offer_id TEXT,
+    listing_id TEXT,
+    title_en TEXT NOT NULL,
+    description_html TEXT,
+    listed_price_usd REAL NOT NULL,
+    listed_fx_rate REAL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ebay_order_id TEXT NOT NULL UNIQUE,
     candidate_id INTEGER REFERENCES candidates(id),
+    listing_id INTEGER REFERENCES listings(id),
     buyer_username TEXT,
     sale_price_usd REAL NOT NULL,
     actual_cost_jpy INTEGER,
@@ -72,6 +89,7 @@ CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ebay_message_id TEXT UNIQUE,
     order_id INTEGER REFERENCES orders(id),
+    listing_id INTEGER REFERENCES listings(id),
     buyer_username TEXT NOT NULL,
     direction TEXT NOT NULL DEFAULT 'inbound',
     category TEXT,
@@ -97,21 +115,38 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_dedup
     WHERE ebay_item_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_candidates_status ON candidates(status);
 CREATE INDEX IF NOT EXISTS idx_candidates_research_run ON candidates(research_run_id);
+CREATE INDEX IF NOT EXISTS idx_listings_candidate ON listings(candidate_id);
+CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_ordered_at ON orders(ordered_at);
+CREATE INDEX IF NOT EXISTS idx_orders_listing ON orders(listing_id);
 CREATE INDEX IF NOT EXISTS idx_messages_buyer ON messages(buyer_username);
+CREATE INDEX IF NOT EXISTS idx_messages_listing ON messages(listing_id);
 """
+
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 
 class Database:
     """非同期 SQLite データベースラッパー."""
 
     def __init__(self, db_path: str | Path = "db/ebay.db") -> None:
-        self._db_path = Path(db_path)
+        path = Path(db_path)
+        # Resolve relative paths against project root (not cwd)
+        if str(db_path) != ":memory:" and not path.is_absolute():
+            path = _PROJECT_ROOT / path
+        self._db_path = path
         self._db: aiosqlite.Connection | None = None
 
     async def connect(self) -> None:
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        if str(self._db_path) != ":memory:":
+            parent = self._db_path.parent
+            parent.mkdir(parents=True, exist_ok=True)
+            if not os.access(parent, os.W_OK):
+                raise PermissionError(
+                    f"No write permission on database directory: {parent}"
+                )
         self._db = await aiosqlite.connect(self._db_path)
         self._db.row_factory = aiosqlite.Row
         await self._db.executescript(SCHEMA_SQL)
@@ -274,6 +309,59 @@ class Database:
         )
         await self.db.commit()
 
+    # --- Listings ---
+
+    async def add_listing(
+        self,
+        *,
+        candidate_id: int,
+        sku: str,
+        title_en: str,
+        listed_price_usd: float,
+        listed_fx_rate: float | None = None,
+        offer_id: str | None = None,
+        listing_id: str | None = None,
+        description_html: str | None = None,
+        status: str = "active",
+    ) -> int:
+        cursor = await self.db.execute(
+            """INSERT INTO listings
+            (candidate_id, sku, offer_id, listing_id, title_en, description_html,
+             listed_price_usd, listed_fx_rate, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                candidate_id, sku, offer_id, listing_id, title_en,
+                description_html, listed_price_usd, listed_fx_rate, status,
+            ),
+        )
+        await self.db.commit()
+        return cursor.lastrowid  # type: ignore[return-value]
+
+    async def get_listing_by_id(self, listing_id: int) -> dict | None:
+        cursor = await self.db.execute(
+            "SELECT * FROM listings WHERE id = ?", (listing_id,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def get_listing_by_sku(self, sku: str) -> dict | None:
+        cursor = await self.db.execute(
+            "SELECT * FROM listings WHERE sku = ?", (sku,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def update_listing(self, id_: int, **fields: object) -> None:
+        if not fields:
+            return
+        fields["updated_at"] = datetime.utcnow().isoformat()
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [id_]
+        await self.db.execute(
+            f"UPDATE listings SET {set_clause} WHERE id = ?", values  # noqa: S608
+        )
+        await self.db.commit()
+
     # --- Orders ---
 
     async def add_order(
@@ -281,15 +369,16 @@ class Database:
         *,
         ebay_order_id: str,
         candidate_id: int | None = None,
+        listing_id: int | None = None,
         buyer_username: str | None = None,
         sale_price_usd: float,
         destination_country: str | None = None,
     ) -> int:
         cursor = await self.db.execute(
             """INSERT INTO orders
-            (ebay_order_id, candidate_id, buyer_username, sale_price_usd, destination_country)
-            VALUES (?, ?, ?, ?, ?)""",
-            (ebay_order_id, candidate_id, buyer_username, sale_price_usd, destination_country),
+            (ebay_order_id, candidate_id, listing_id, buyer_username, sale_price_usd, destination_country)
+            VALUES (?, ?, ?, ?, ?, ?)""",
+            (ebay_order_id, candidate_id, listing_id, buyer_username, sale_price_usd, destination_country),
         )
         await self.db.commit()
         return cursor.lastrowid  # type: ignore[return-value]
@@ -352,14 +441,15 @@ class Database:
         direction: str = "inbound",
         ebay_message_id: str | None = None,
         order_id: int | None = None,
+        listing_id: int | None = None,
         category: str | None = None,
         auto_replied: bool = False,
     ) -> int:
         cursor = await self.db.execute(
             """INSERT INTO messages
-            (ebay_message_id, order_id, buyer_username, direction, category, body, auto_replied)
-            VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (ebay_message_id, order_id, buyer_username, direction, category, body, int(auto_replied)),
+            (ebay_message_id, order_id, listing_id, buyer_username, direction, category, body, auto_replied)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (ebay_message_id, order_id, listing_id, buyer_username, direction, category, body, int(auto_replied)),
         )
         await self.db.commit()
         return cursor.lastrowid  # type: ignore[return-value]

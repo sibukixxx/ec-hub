@@ -138,3 +138,31 @@ async def test_run_with_approved(lister, db):
 
     count = await lister.run()
     assert count == 3
+
+
+async def test_list_candidate_creates_listing_record(lister, db):
+    """出品時にlistingsテーブルにレコードが作成される."""
+    cid = await db.add_candidate(
+        item_code="B09TRACE",
+        source_site="amazon",
+        title_jp="トレーサビリティ商品",
+        title_en=None,
+        cost_jpy=3000,
+        ebay_price_usd=80.0,
+        net_profit_jpy=5000,
+        margin_rate=1.67,
+        weight_g=500,
+    )
+    await db.update_candidate_status(cid, "approved")
+
+    result = await lister.list_candidate(cid)
+    assert result is True
+
+    listing = await db.get_listing_by_sku(f"ECHUB-{cid}")
+    assert listing is not None
+    assert listing["candidate_id"] == cid
+    assert listing["listed_price_usd"] > 0
+    assert listing["listed_fx_rate"] > 0
+    assert listing["title_en"] is not None
+    assert listing["description_html"] is not None
+    assert listing["status"] == "active"

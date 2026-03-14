@@ -162,12 +162,21 @@ class Lister:
 
         # 4. eBay API出品
         ebay_api = self._get_ebay_api()
+        sku = f"ECHUB-{candidate_id}"
+
         if not ebay_api.is_configured:
             logger.warning("eBay API未設定。出品をシミュレーションのみ実行。")
+            await self._db.add_listing(
+                candidate_id=candidate_id,
+                sku=sku,
+                title_en=title_en,
+                description_html=description_html,
+                listed_price_usd=listing_price,
+                listed_fx_rate=fx_rate,
+            )
             await self._db.update_candidate_status(candidate_id, "listed")
             return True
 
-        sku = f"ECHUB-{candidate_id}"
         try:
             await ebay_api.create_or_replace_inventory_item(
                 sku,
@@ -185,10 +194,22 @@ class Lister:
                 listing_description=description_html,
             )
             offer_id = offer_data.get("offerId", "")
+            listing_id = None
 
             if offer_id:
-                await ebay_api.publish_offer(offer_id)
+                publish_data = await ebay_api.publish_offer(offer_id)
+                listing_id = publish_data.get("listingId")
 
+            await self._db.add_listing(
+                candidate_id=candidate_id,
+                sku=sku,
+                title_en=title_en,
+                description_html=description_html,
+                listed_price_usd=listing_price,
+                listed_fx_rate=fx_rate,
+                offer_id=offer_id,
+                listing_id=listing_id,
+            )
             await self._db.update_candidate_status(candidate_id, "listed")
             logger.info("出品完了: %s ($%.2f)", title_en[:30], listing_price)
             return True
