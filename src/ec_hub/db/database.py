@@ -164,6 +164,21 @@ class Database:
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
+    async def get_candidate_by_id(self, candidate_id: int) -> dict | None:
+        cursor = await self.db.execute("SELECT * FROM candidates WHERE id = ?", (candidate_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def count_candidates_by_status(self, status: str | None = None) -> int:
+        if status:
+            cursor = await self.db.execute(
+                "SELECT COUNT(*) FROM candidates WHERE status = ?", (status,)
+            )
+        else:
+            cursor = await self.db.execute("SELECT COUNT(*) FROM candidates")
+        row = await cursor.fetchone()
+        return row[0]
+
     async def update_candidate_status(self, candidate_id: int, status: str) -> None:
         await self.db.execute(
             "UPDATE candidates SET status = ?, updated_at = ? WHERE id = ?",
@@ -203,6 +218,21 @@ class Database:
             )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+    async def get_order_by_id(self, order_id: int) -> dict | None:
+        cursor = await self.db.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def count_orders_by_status(self, status: str | None = None) -> int:
+        if status:
+            cursor = await self.db.execute(
+                "SELECT COUNT(*) FROM orders WHERE status = ?", (status,)
+            )
+        else:
+            cursor = await self.db.execute("SELECT COUNT(*) FROM orders")
+        row = await cursor.fetchone()
+        return row[0]
 
     async def update_order(self, order_id: int, **fields: object) -> None:
         if not fields:

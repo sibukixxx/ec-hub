@@ -106,3 +106,99 @@ async def test_save_daily_report(db):
         new_candidates_count=12,
         new_listings_count=3,
     )
+
+
+# --- get_candidate_by_id ---
+
+
+async def test_get_candidate_by_id_returns_candidate_when_exists(db):
+    cid = await db.add_candidate(
+        item_code="B09ID01",
+        source_site="amazon",
+        title_jp="ID検索テスト商品",
+        title_en="ID Search Test",
+        cost_jpy=2000,
+        ebay_price_usd=50.0,
+        net_profit_jpy=3000,
+        margin_rate=1.50,
+    )
+    result = await db.get_candidate_by_id(cid)
+    assert result is not None
+    assert result["id"] == cid
+    assert result["item_code"] == "B09ID01"
+    assert result["title_jp"] == "ID検索テスト商品"
+
+
+async def test_get_candidate_by_id_returns_none_when_not_exists(db):
+    result = await db.get_candidate_by_id(9999)
+    assert result is None
+
+
+# --- get_order_by_id ---
+
+
+async def test_get_order_by_id_returns_order_when_exists(db):
+    oid = await db.add_order(
+        ebay_order_id="11-11111-11111",
+        buyer_username="buyer_id_test",
+        sale_price_usd=60.0,
+        destination_country="JP",
+    )
+    result = await db.get_order_by_id(oid)
+    assert result is not None
+    assert result["id"] == oid
+    assert result["ebay_order_id"] == "11-11111-11111"
+    assert result["buyer_username"] == "buyer_id_test"
+
+
+async def test_get_order_by_id_returns_none_when_not_exists(db):
+    result = await db.get_order_by_id(9999)
+    assert result is None
+
+
+# --- count_candidates_by_status ---
+
+
+async def test_count_candidates_by_status_returns_count(db):
+    # 空の状態
+    assert await db.count_candidates_by_status() == 0
+    assert await db.count_candidates_by_status("pending") == 0
+
+    # 2件追加
+    await db.add_candidate(
+        item_code="CNT01", source_site="amazon", title_jp="カウント1",
+        title_en=None, cost_jpy=1000, ebay_price_usd=30.0,
+        net_profit_jpy=1000, margin_rate=1.0,
+    )
+    cid2 = await db.add_candidate(
+        item_code="CNT02", source_site="rakuten", title_jp="カウント2",
+        title_en=None, cost_jpy=2000, ebay_price_usd=60.0,
+        net_profit_jpy=2000, margin_rate=1.0,
+    )
+    await db.update_candidate_status(cid2, "approved")
+
+    assert await db.count_candidates_by_status() == 2
+    assert await db.count_candidates_by_status("pending") == 1
+    assert await db.count_candidates_by_status("approved") == 1
+    assert await db.count_candidates_by_status("listed") == 0
+
+
+# --- count_orders_by_status ---
+
+
+async def test_count_orders_by_status_returns_count(db):
+    assert await db.count_orders_by_status() == 0
+    assert await db.count_orders_by_status("awaiting_purchase") == 0
+
+    await db.add_order(
+        ebay_order_id="CNT-001", sale_price_usd=40.0,
+    )
+    oid2 = await db.add_order(
+        ebay_order_id="CNT-002", sale_price_usd=50.0,
+    )
+    await db.update_order(oid2, status="shipped")
+
+    assert await db.count_orders_by_status() == 2
+    assert await db.count_orders_by_status("awaiting_purchase") == 1
+    assert await db.count_orders_by_status("shipped") == 1
+    assert await db.count_orders_by_status("delivered") == 0
